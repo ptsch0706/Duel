@@ -91,6 +91,13 @@
       </div>
       <div class="badge">Play</div>
     </a>
+    <a class="game-tile" href="trivia.html" id="triviaTile">
+      <div>
+        <div class="title">Trivia Duel</div>
+        <div class="desc">Batches of questions, play anytime</div>
+      </div>
+      <div class="badge">Play</div>
+    </a>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -101,7 +108,7 @@
   nameInput.addEventListener('input', ()=> Duel.saveName(nameInput.value.trim()));
 
   // Require a name before letting them tap into a game
-  ['boggleTile','ladderTile','telephoneTile'].forEach(id=>{
+  ['boggleTile','ladderTile','telephoneTile','triviaTile'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.addEventListener('click', (e)=>{
       if(!nameInput.value.trim()){
