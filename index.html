@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Duel</title>
+<meta name="theme-color" content="#123524">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="shared.js"></script>
+<style>
+  :root{
+    --felt: #123524; --felt-deep:#0c2419; --felt-light:#1d4a34;
+    --ivory:#f4ecd8; --ivory-dim:#e3d7b4; --ink:#22201c;
+    --brass:#c9a227; --brass-bright:#e6c04f; --brass-dark:#8f6f16;
+    --line: rgba(244,236,216,0.14);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    height:100%; margin:0;
+    background: radial-gradient(120% 140% at 50% -10%, var(--felt-light), var(--felt) 55%, var(--felt-deep) 100%);
+    color:var(--ivory); font-family:'Work Sans', sans-serif; -webkit-user-select:none; user-select:none;
+  }
+  #app{ min-height:100dvh; display:flex; flex-direction:column; padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom)); }
+  h1,h2,h3{ font-family:'Fraunces', serif; font-weight:700; margin:0; letter-spacing:-0.01em; }
+  .brand{ text-align:center; margin: 24px 0 30px; }
+  .brand .kicker{ display:block; font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--brass-bright); opacity:.85; margin-bottom:6px; }
+  .brand h1{ font-size:52px; line-height:1; }
+  label{ font-size:12px; text-transform:uppercase; letter-spacing:.12em; color:var(--ivory-dim); display:block; margin: 0 0 8px; }
+  input[type=text]{
+    width:100%; padding:14px 16px; font-size:18px; font-family:'Work Sans';
+    background:var(--felt-light); border:1px solid var(--line); border-radius:10px; color:var(--ivory); outline:none;
+  }
+  input:focus{ border-color:var(--brass); }
+  .card{ background:rgba(0,0,0,0.16); border:1px solid var(--line); border-radius:16px; padding:18px; margin-top:14px; }
+  .game-list{ margin-top:8px; display:flex; flex-direction:column; gap:12px; }
+  .game-tile{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:18px; border-radius:14px; text-decoration:none; color:inherit;
+    background:linear-gradient(180deg, rgba(244,236,216,0.08), rgba(244,236,216,0.03));
+    border:1px solid var(--line); transition: transform .08s ease;
+  }
+  .game-tile:active{ transform:scale(.98); }
+  .game-tile.disabled{ opacity:.45; pointer-events:none; }
+  .game-tile .title{ font-family:'Fraunces'; font-weight:700; font-size:19px; }
+  .game-tile .desc{ font-size:13px; color:var(--ivory-dim); margin-top:2px; }
+  .game-tile .badge{ font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--brass-bright); border:1px solid var(--brass-dark); padding:4px 8px; border-radius:20px; white-space:nowrap; }
+  .toast{
+    position:fixed; left:20px; right:20px; bottom:max(20px, env(safe-area-inset-bottom));
+    background:var(--felt-light); border:1px solid var(--brass); border-radius:12px;
+    padding:14px 16px; font-size:14px; text-align:center; box-shadow:0 8px 24px rgba(0,0,0,.4);
+    transform:translateY(120%); transition:transform .3s ease; z-index:50;
+  }
+  .toast.show{ transform:translateY(0); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="brand">
+    <span class="kicker">Game Night</span>
+    <h1>Duel</h1>
+  </div>
+
+  <div class="card">
+    <label>Your name</label>
+    <input type="text" id="nameInput" placeholder="e.g. Phil" maxlength="20">
+  </div>
+
+  <div class="game-list" id="gameList">
+    <a class="game-tile" href="boggle.html" id="boggleTile">
+      <div>
+        <div class="title">Speed Boggle Duel</div>
+        <div class="desc">Race to find words on a shared board</div>
+      </div>
+      <div class="badge">Play</div>
+    </a>
+    <div class="game-tile disabled">
+      <div>
+        <div class="title">Word Ladder Race</div>
+        <div class="desc">Turn one word into another, fastest wins</div>
+      </div>
+      <div class="badge">Soon</div>
+    </div>
+    <div class="game-tile disabled">
+      <div>
+        <div class="title">Telephone Draw</div>
+        <div class="desc">Draw it, guess it, draw it again</div>
+      </div>
+      <div class="badge">Soon</div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+  const nameInput = document.getElementById('nameInput');
+  nameInput.value = Duel.getSavedName();
+  nameInput.addEventListener('input', ()=> Duel.saveName(nameInput.value.trim()));
+
+  // Require a name before letting them tap into a game
+  document.getElementById('boggleTile').addEventListener('click', (e)=>{
+    if(!nameInput.value.trim()){
+      e.preventDefault();
+      Duel.toast('Enter your name first');
+      nameInput.focus();
+    }
+  });
+</script>
+</body>
+</html>
