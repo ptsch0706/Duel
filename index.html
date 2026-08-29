@@ -52,7 +52,7 @@
     position:fixed; left:20px; right:20px; bottom:max(20px, env(safe-area-inset-bottom));
     background:var(--felt-light); border:1px solid var(--brass); border-radius:12px;
     padding:14px 16px; font-size:14px; text-align:center; box-shadow:0 8px 24px rgba(0,0,0,.4);
-    transform:translateY(120%); transition:transform .3s ease; z-index:50;
+    transform:translateY(calc(100% + 60px)); transition:transform .3s ease; z-index:50;
   }
   .toast.show{ transform:translateY(0); }
 </style>
@@ -77,13 +77,13 @@
       </div>
       <div class="badge">Play</div>
     </a>
-    <div class="game-tile disabled">
+    <a class="game-tile" href="ladder.html" id="ladderTile">
       <div>
         <div class="title">Word Ladder Race</div>
         <div class="desc">Turn one word into another, fastest wins</div>
       </div>
-      <div class="badge">Soon</div>
-    </div>
+      <div class="badge">Play</div>
+    </a>
     <div class="game-tile disabled">
       <div>
         <div class="title">Telephone Draw</div>
@@ -101,12 +101,15 @@
   nameInput.addEventListener('input', ()=> Duel.saveName(nameInput.value.trim()));
 
   // Require a name before letting them tap into a game
-  document.getElementById('boggleTile').addEventListener('click', (e)=>{
-    if(!nameInput.value.trim()){
-      e.preventDefault();
-      Duel.toast('Enter your name first');
-      nameInput.focus();
-    }
+  ['boggleTile','ladderTile'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.addEventListener('click', (e)=>{
+      if(!nameInput.value.trim()){
+        e.preventDefault();
+        Duel.toast('Enter your name first');
+        nameInput.focus();
+      }
+    });
   });
 </script>
 </body>

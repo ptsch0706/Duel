@@ -149,7 +149,7 @@
     position:fixed; left:20px; right:20px; bottom:max(20px, env(safe-area-inset-bottom));
     background:var(--felt-light); border:1px solid var(--brass); border-radius:12px;
     padding:14px 16px; font-size:14px; text-align:center; box-shadow:0 8px 24px rgba(0,0,0,.4);
-    transform:translateY(120%); transition:transform .3s ease; z-index:50;
+    transform:translateY(calc(100% + 60px)); transition:transform .3s ease; z-index:50;
   }
   .toast.show{ transform:translateY(0); }
 
@@ -227,6 +227,7 @@ let state = {
 };
 
 const toast = Duel.toast; // thin alias so existing calls below don't need renaming
+const isRealWord = Duel.isRealWord.bind(Duel); // local-list-first check from shared.js
 
 /* ============================================================
    RENDER — a tiny hand-rolled router, one function per screen
@@ -650,7 +651,7 @@ function wireBoardInput(){
   });
 }
 
-function submitCurrentWord(){
+async function submitCurrentWord(){
   const board = state.room.board;
   const word = state.currentPath.map(i=>board[i]).join('');
   const tray = document.getElementById('tray');
@@ -663,9 +664,25 @@ function submitCurrentWord(){
     toast('Already found that one');
     return;
   }
+
+  // Reserve the word immediately so a second fast trace of it while the
+  // check is still in flight doesn't get queued twice.
   state.foundWords.add(word);
+  const countEl = document.getElementById('myCount');
+  countEl.textContent = state.foundWords.size + ' found (checking ' + word.toLowerCase() + '...)';
+
+  const ok = await isRealWord(word);
+
+  if(!ok){
+    state.foundWords.delete(word);
+    countEl.textContent = state.foundWords.size + ' found';
+    tray.classList.add('flash-bad'); setTimeout(()=>tray.classList.remove('flash-bad'),400);
+    toast(word.toLowerCase() + " isn't a real word");
+    return;
+  }
+
+  countEl.textContent = state.foundWords.size + ' found';
   tray.classList.add('flash-good'); setTimeout(()=>tray.classList.remove('flash-good'),400);
-  document.getElementById('myCount').textContent = state.foundWords.size + ' found';
 
   if(state.localMode){
     if(!state.room.p1.words) state.room.p1.words = [];
@@ -715,38 +732,18 @@ function startLocalTimerTick(){
 /* ============================================================
    SCORING — runs once, on p1's device, when the round ends
    1. Cancel out words both players found (real Boggle rule)
-   2. Validate what's left against a free dictionary API
-   3. Score by word length
+   2. Score what's left by word length
+   Dictionary validation already happened live, per word, at the moment
+   each one was traced — see submitCurrentWord — so nothing here needs
+   the network, and this step is now instant.
    ============================================================ */
-async function isRealWord(word){
-  try{
-    const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word.toLowerCase()}`);
-    return res.ok;
-  }catch(e){
-    // If the dictionary API is unreachable, don't penalize the player —
-    // accept the word rather than silently losing valid points.
-    return true;
-  }
-}
 
 async function runScoring(roomId, data){
   const p1Words = [...new Set(data.p1.words || [])];
   const p2Words = [...new Set(data.p2.words || [])];
   const shared = p1Words.filter(w=>p2Words.includes(w));
-  let p1Only = p1Words.filter(w=>!shared.includes(w));
-  let p2Only = p2Words.filter(w=>!shared.includes(w));
-
-  const invalid = [];
-  async function filterValid(list){
-    const kept = [];
-    for(const w of list){
-      const ok = await isRealWord(w);
-      if(ok) kept.push(w); else invalid.push(w);
-    }
-    return kept;
-  }
-  p1Only = await filterValid(p1Only);
-  p2Only = await filterValid(p2Only);
+  const p1Only = p1Words.filter(w=>!shared.includes(w));
+  const p2Only = p2Words.filter(w=>!shared.includes(w));
 
   const build = (list)=> list.map(w=>({ word:w, points: scoreForLength(w.length) }))
                               .sort((a,b)=> b.points - a.points);
@@ -756,30 +753,24 @@ async function runScoring(roomId, data){
   const results = {
     p1: { words: p1res, score: p1res.reduce((s,x)=>s+x.points,0) },
     p2: { words: p2res, score: p2res.reduce((s,x)=>s+x.points,0) },
-    shared, invalid
+    shared, invalid: []
   };
 
   await db.collection('boggleRooms').doc(roomId).update({ status:'results', results });
 }
 
-/* Solo-practice version of scoring — same dictionary-validation pass,
-   just no opponent to cancel duplicate words against. */
-async function runScoringLocal(){
+/* Solo-practice version of scoring — words are already validated live
+   during play, so this is just tallying points, no network needed. */
+function runScoringLocal(){
   const p1Words = [...new Set(state.room.p1.words || [])];
-  const invalid = [];
-  const kept = [];
-  for(const w of p1Words){
-    const ok = await isRealWord(w);
-    if(ok) kept.push(w); else invalid.push(w);
-  }
   const build = (list)=> list.map(w=>({ word:w, points: scoreForLength(w.length) }))
                               .sort((a,b)=> b.points - a.points);
-  const p1res = build(kept);
+  const p1res = build(p1Words);
 
   state.room.results = {
     p1: { words: p1res, score: p1res.reduce((s,x)=>s+x.points,0) },
     p2: { words: [], score: 0 },
-    shared: [], invalid
+    shared: [], invalid: []
   };
   state.room.status = 'results';
   state.screen = 'results';

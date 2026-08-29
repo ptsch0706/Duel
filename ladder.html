@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Duel — Word Ladder Race</title>
+<meta name="theme-color" content="#123524">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- Firebase config + room helpers live in shared.js, same as boggle.html.
+     See shared.js for the Firebase Console setup steps and Firestore rule. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="shared.js"></script>
+
+<style>
+  /* Same felt/ivory/brass identity as the rest of Duel, for suite consistency */
+  :root{
+    --felt: #123524; --felt-deep:#0c2419; --felt-light:#1d4a34;
+    --ivory: #f4ecd8; --ivory-dim: #e3d7b4; --ink: #22201c;
+    --brass: #c9a227; --brass-bright: #e6c04f; --brass-dark: #8f6f16;
+    --alert: #c1440e; --success: #7a9b5c;
+    --line: rgba(244,236,216,0.14);
+    --shadow-hard: 0 6px 0 rgba(0,0,0,0.35);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    height:100%; margin:0; overscroll-behavior:none;
+    background: radial-gradient(120% 140% at 50% -10%, var(--felt-light), var(--felt) 55%, var(--felt-deep) 100%);
+    color:var(--ivory); font-family:'Work Sans', sans-serif; -webkit-user-select:none; user-select:none;
+  }
+  #app{ min-height:100dvh; display:flex; flex-direction:column; padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom)); }
+  h1,h2,h3{ font-family:'Fraunces', serif; font-weight:700; margin:0; letter-spacing:-0.01em; }
+  .screen{ flex:1; display:flex; flex-direction:column; animation: fadein .35s ease both; min-height:0; }
+  @keyframes fadein{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+
+  .brand{ text-align:center; margin: 10px 0 28px; }
+  .brand .kicker{ display:block; font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--brass-bright); opacity:.85; margin-bottom:6px; }
+  .brand h1{ font-size:38px; line-height:1; }
+
+  label{ font-size:12px; text-transform:uppercase; letter-spacing:.12em; color:var(--ivory-dim); display:block; margin: 18px 0 8px; }
+  input[type=text], input[type=number]{
+    width:100%; padding:14px 16px; font-size:18px; font-family:'Work Sans';
+    background:var(--felt-light); border:1px solid var(--line); border-radius:10px;
+    color:var(--ivory); outline:none;
+  }
+  input:focus{ border-color:var(--brass); }
+
+  .btn{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    padding:15px 20px; border-radius:12px; border:none; cursor:pointer;
+    font-family:'Work Sans'; font-weight:600; font-size:16px;
+    transition: transform .08s ease;
+  }
+  .btn:active{ transform: translateY(2px); }
+  .btn-primary{ background:var(--brass); color:#241c02; box-shadow:var(--shadow-hard); }
+  .btn-primary:active{ box-shadow:0 3px 0 rgba(0,0,0,.35); }
+  .btn-ghost{ background:transparent; color:var(--ivory-dim); border:1px solid var(--line); }
+  .btn-row{ display:flex; gap:10px; margin-top:22px; }
+  .btn-row .btn{ flex:1; }
+
+  .card{ background:rgba(0,0,0,0.16); border:1px solid var(--line); border-radius:16px; padding:20px; margin-top:16px; }
+  .muted{ color:var(--ivory-dim); font-size:14px; line-height:1.5; }
+  .center{ text-align:center; }
+
+  .code-display{
+    font-family:'Fraunces'; font-weight:700; font-size:34px; letter-spacing:.12em;
+    text-align:center; padding:16px; background:rgba(0,0,0,0.2); border-radius:12px;
+    border:1px dashed var(--brass); color:var(--brass-bright); margin-top:10px;
+  }
+  .spinner{ width:16px; height:16px; border-radius:50%; border:2px solid rgba(244,236,216,.25); border-top-color:var(--brass-bright); animation:spin 0.8s linear infinite; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .diff-pill{ display:inline-flex; gap:6px; margin:4px 0; }
+
+  /* ---- difficulty picker ---- */
+  .tier-row{ display:flex; gap:8px; margin-top:8px; }
+  .tier-btn{
+    flex:1; padding:10px; border-radius:10px; border:1px solid var(--line); background:transparent;
+    color:var(--ivory-dim); font-family:'Work Sans'; font-weight:600; font-size:13px; cursor:pointer;
+  }
+  .tier-btn.active{ background:var(--brass); color:#241c02; border-color:var(--brass); }
+
+  /* ---- top bar during play ---- */
+  .topbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+  .timer-ring{ position:relative; width:52px; height:52px; }
+  .timer-ring svg{ transform:rotate(-90deg); width:52px; height:52px; }
+  .timer-ring circle{ fill:none; stroke-width:5; }
+  .timer-ring .bg{ stroke:rgba(244,236,216,.14); }
+  .timer-ring .fg{ stroke:var(--brass-bright); stroke-linecap:round; transition:stroke-dashoffset .25s linear, stroke .3s ease; }
+  .timer-ring.urgent .fg{ stroke:var(--alert); }
+  .timer-num{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; font-family:'Fraunces'; }
+  .opp-status{ text-align:right; }
+  .opp-status .name{ font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--ivory-dim); }
+  .opp-status .count{ font-family:'Fraunces'; font-size:20px; font-weight:700; color:var(--brass-bright); }
+
+  /* ---- goal strip ---- */
+  .goal-strip{ display:flex; align-items:center; justify-content:center; gap:14px; margin-bottom:14px; }
+  .goal-word{ font-family:'Fraunces'; font-weight:700; font-size:22px; letter-spacing:.06em; padding:8px 16px; border-radius:10px; }
+  .goal-word.start{ background:rgba(244,236,216,.1); color:var(--ivory); }
+  .goal-word.end{ background:var(--brass); color:#241c02; }
+  .goal-arrow{ color:var(--brass-bright); font-size:18px; }
+
+  /* ---- the ladder itself ---- */
+  .ladder-wrap{ flex:1; overflow-y:auto; padding: 4px 4px 10px 20px; position:relative; }
+  .ladder-wrap::before{
+    content:''; position:absolute; left:14px; top:6px; bottom:60px; width:2px;
+    background:linear-gradient(var(--brass), rgba(201,162,39,.15));
+  }
+  .rung{ position:relative; display:flex; align-items:center; margin-bottom:10px; animation: climb .35s cubic-bezier(.2,1.2,.4,1) both; }
+  @keyframes climb{ from{ opacity:0; transform:translateY(14px) scale(.94); } to{ opacity:1; transform:translateY(0) scale(1); } }
+  .rung::before{
+    content:''; position:absolute; left:-20px; width:10px; height:10px; border-radius:50%;
+    background:var(--brass-bright); box-shadow:0 0 0 4px var(--felt);
+  }
+  .rung-word{
+    font-family:'Fraunces'; font-weight:700; font-size:20px; letter-spacing:.05em;
+    background:linear-gradient(180deg, var(--ivory), var(--ivory-dim)); color:var(--ink);
+    padding:9px 16px; border-radius:10px; box-shadow:0 3px 0 #b6a875;
+  }
+  .rung-word .hl{ color:var(--brass-dark); text-decoration:underline; text-decoration-color:var(--alert); text-decoration-thickness:2px; }
+  .rung.goal .rung-word{ background:linear-gradient(180deg, var(--brass-bright), var(--brass)); box-shadow:0 3px 0 var(--brass-dark); }
+
+  .input-row{ display:flex; gap:8px; margin-top:auto; padding-top:10px; }
+  .input-row input{ flex:1; text-transform:uppercase; letter-spacing:.1em; text-align:center; font-family:'Fraunces'; font-weight:700; font-size:20px; }
+  .input-row button{ padding:0 22px; border-radius:10px; border:none; background:var(--brass); color:#241c02; font-weight:700; font-family:'Work Sans'; }
+  .input-row.shake{ animation:shake .3s ease; }
+  @keyframes shake{ 0%,100%{transform:translateX(0);} 25%{transform:translateX(-6px);} 75%{transform:translateX(6px);} }
+
+  .hint-line{ font-size:12px; color:var(--ivory-dim); text-align:center; margin-top:6px; min-height:16px; }
+  .hint-line.bad{ color:var(--alert); }
+  .hint-line.good{ color:var(--success); }
+
+  /* ---- results ---- */
+  .winner-banner{ text-align:center; margin:10px 0 16px; }
+  .winner-banner h2{ font-size:26px; color:var(--brass-bright); }
+  .chain-compare{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .chain-col h3{ font-size:14px; margin-bottom:8px; }
+  .chain-col .moves{ font-family:'Fraunces'; font-size:22px; color:var(--brass-bright); margin-bottom:6px; }
+  .chain-col .word-list{ font-size:13px; line-height:1.9; }
+
+  .toast{
+    position:fixed; left:20px; right:20px; bottom:max(20px, env(safe-area-inset-bottom));
+    background:var(--felt-light); border:1px solid var(--brass); border-radius:12px;
+    padding:14px 16px; font-size:14px; text-align:center; box-shadow:0 8px 24px rgba(0,0,0,.4);
+    transform:translateY(calc(100% + 60px)); transition:transform .3s ease; z-index:50;
+  }
+  .toast.show{ transform:translateY(0); }
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const db = Duel.db; // shared Firebase connection from shared.js
+const toast = Duel.toast;
+
+/* ============================================================
+   PUZZLE LIBRARY
+   Each pair below has a hand-verified chain I built myself,
+   changing exactly one letter per step, using only common,
+   non-archaic English words — so we know at least one solution
+   exists. Players aren't limited to that exact path though:
+   any real word, one letter different from their last word,
+   is accepted (checked live against a dictionary API), so they
+   may well find a totally different route to the same target.
+   ============================================================ */
+const PUZZLES = [
+  { start:'CAT',   end:'DOG',   length:3, tier:'medium' }, // CAT,COT,DOT,DOG
+  { start:'BAT',   end:'BIG',   length:3, tier:'easy' },   // BAT,BIT,BIG
+  { start:'LOVE',  end:'LIFE',  length:4, tier:'easy' },   // LOVE,LIVE,LIFE
+  { start:'COLD',  end:'WARM',  length:4, tier:'hard' },   // COLD,CORD,CARD,WARD,WARM
+  { start:'HEAD',  end:'TAIL',  length:4, tier:'hard' },   // HEAD,HEAL,TEAL,TELL,TALL,TAIL
+  { start:'HOUSE', end:'MOUSE', length:5, tier:'easy' },   // HOUSE,MOUSE
+  { start:'SHARE', end:'SCORE', length:5, tier:'medium' }, // SHARE,SHORE,SCORE
+  { start:'STONE', end:'SHINE', length:5, tier:'medium' }  // STONE,SHONE,SHINE
+];
+
+const ROUND_SECONDS_DEFAULT = 180;
+
+function pickPuzzle(tier){
+  const pool = tier === 'random' ? PUZZLES : PUZZLES.filter(p=>p.tier===tier);
+  const list = pool.length ? pool : PUZZLES;
+  return list[Math.floor(Math.random()*list.length)];
+}
+
+function diffPositions(a,b){
+  let n=0;
+  for(let i=0;i<a.length;i++) if(a[i]!==b[i]) n++;
+  return n;
+}
+
+const isRealWord = Duel.isRealWord.bind(Duel); // local-list-first check from shared.js
+
+/* ============================================================
+   APP STATE
+   ============================================================ */
+let state = {
+  screen: 'home',
+  roomId: null,
+  playerId: null,
+  room: null,
+  unsub: null,
+  timerInterval: null,
+  roundEndsAt: null,
+  localMode: false,
+  checking: false
+};
+
+function render(){
+  const app = document.getElementById('app');
+  if(state.screen === 'home') app.innerHTML = renderHome();
+  else if(state.screen === 'lobby') app.innerHTML = renderLobby();
+  else if(state.screen === 'countdown') app.innerHTML = renderCountdown();
+  else if(state.screen === 'playing') app.innerHTML = renderPlaying();
+  else if(state.screen === 'results') app.innerHTML = renderResults();
+  wireScreen();
+}
+
+function renderHome(){
+  return `
+  <div class="screen">
+    <div class="brand">
+      <span class="kicker">Two Players · Same Puzzle</span>
+      <h1>Word Ladder<br>Race</h1>
+    </div>
+    <div class="card">
+      <label>Your name</label>
+      <input type="text" id="nameInput" placeholder="e.g. Phil" maxlength="20" value="${Duel.getSavedName()}">
+      <div class="btn-row" style="margin-top:22px;">
+        <button class="btn btn-primary" id="createBtn">Start a room</button>
+      </div>
+    </div>
+    <div class="card">
+      <label>Have a room code?</label>
+      <input type="text" id="joinCode" placeholder="4-letter code" maxlength="4" style="text-transform:uppercase;">
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="joinBtn">Join room</button>
+      </div>
+    </div>
+    <div class="card center">
+      <div class="muted" style="margin-bottom:12px;">No Firebase set up yet? Test the game solo — no network needed.</div>
+      <button class="btn btn-ghost" id="soloBtn" style="width:100%;">Practice Solo (no Firebase)</button>
+    </div>
+  </div>`;
+}
+
+function renderLobby(){
+  const room = state.room;
+  const bothIn = state.localMode ? true : (room && room.p1 && room.p2);
+  const tier = room?.tier || 'medium';
+  return `
+  <div class="screen">
+    <div class="brand" style="margin-bottom:14px;">
+      <span class="kicker">${state.localMode ? 'Solo Practice' : 'Room Code'}</span>
+      <div class="code-display">${state.localMode ? 'LOCAL' : state.roomId}</div>
+    </div>
+    <div class="card center">
+      <div class="muted" style="margin-bottom:10px;">${state.localMode ? room.p1.name + ' (practice round — no opponent)' : (room?.p1?.name || '...') + ' vs ' + (room?.p2?.name || 'waiting for opponent')}</div>
+      ${bothIn
+        ? `<button class="btn btn-primary" id="startBtn" style="width:100%;">Start Round</button>`
+        : `<div class="spinner" style="margin:0 auto;"></div><div class="muted" style="margin-top:10px;">Waiting for the other player to join...</div>`
+      }
+    </div>
+    ${bothIn && (state.playerId==='p1' || state.localMode) ? `
+    <div class="card">
+      <label>Difficulty</label>
+      <div class="tier-row" id="tierRow">
+        <button class="tier-btn ${tier==='easy'?'active':''}" data-tier="easy">Easy</button>
+        <button class="tier-btn ${tier==='medium'?'active':''}" data-tier="medium">Medium</button>
+        <button class="tier-btn ${tier==='hard'?'active':''}" data-tier="hard">Hard</button>
+        <button class="tier-btn ${tier==='random'?'active':''}" data-tier="random">Random</button>
+      </div>
+      <label>Round length (seconds)</label>
+      <input type="number" id="durationInput" value="${room.durationSeconds || ROUND_SECONDS_DEFAULT}" min="60" max="600" step="30">
+    </div>` : ''}
+  </div>`;
+}
+
+function renderCountdown(){
+  const n = state.room?.countdownValue ?? 3;
+  return `
+  <div class="screen center" style="justify-content:center; align-items:center;">
+    <div style="font-family:'Fraunces'; font-size:96px; font-weight:700; color:var(--brass-bright);">${n > 0 ? n : 'GO'}</div>
+    <div class="muted">Study the start word...</div>
+  </div>`;
+}
+
+function renderPlaying(){
+  const puzzle = state.room.puzzle;
+  const me = state.room[state.playerId];
+  const oppKey = state.playerId === 'p1' ? 'p2' : 'p1';
+  const opp = state.room[oppKey];
+  const chain = me.chain;
+  return `
+  <div class="screen">
+    <div class="topbar">
+      <div class="timer-ring" id="timerRing">
+        <svg viewBox="0 0 52 52"><circle class="bg" cx="26" cy="26" r="22"></circle><circle class="fg" id="timerCircle" cx="26" cy="26" r="22" stroke-dasharray="138" stroke-dashoffset="0"></circle></svg>
+        <div class="timer-num" id="timerNum">--</div>
+      </div>
+      ${(!state.localMode && opp) ? `
+      <div class="opp-status">
+        <div class="name">${opp.name}</div>
+        <div class="count" id="oppCount">${opp.moves || 0} rungs</div>
+      </div>` : ''}
+    </div>
+    <div class="goal-strip">
+      <div class="goal-word start">${puzzle.start}</div>
+      <div class="goal-arrow">&#8594;</div>
+      <div class="goal-word end">${puzzle.end}</div>
+    </div>
+    <div class="ladder-wrap" id="ladderWrap">
+      ${chain.map((w,i)=>{
+        const prev = chain[i-1];
+        let display = w;
+        if(prev){
+          display = w.split('').map((ch,idx)=> ch!==prev[idx] ? `<span class="hl">${ch}</span>` : ch).join('');
+        }
+        return `<div class="rung ${w===puzzle.end?'goal':''}"><div class="rung-word">${display}</div></div>`;
+      }).join('')}
+    </div>
+    <div class="input-row" id="inputRow">
+      <input type="text" id="wordInput" maxlength="${puzzle.length}" placeholder="next word" autocomplete="off" autocapitalize="characters" ${me.finished ? 'disabled' : ''}>
+      <button id="submitBtn" ${me.finished ? 'disabled' : ''}>Go</button>
+    </div>
+    <div class="hint-line" id="hintLine">${me.finished ? "You solved it! Waiting on the round to end..." : '&nbsp;'}</div>
+  </div>`;
+}
+
+function renderResults(){
+  const room = state.room;
+  const myKey = state.playerId;
+  const oppKey = state.playerId === 'p1' ? 'p2' : 'p1';
+  const me = room[myKey];
+  const opp = state.localMode ? null : room[oppKey];
+
+  let headline;
+  if(room.winner === myKey) headline = "You solved it first!";
+  else if(room.winner === oppKey) headline = `${opp.name} solved it first!`;
+  else if(state.localMode) headline = me.finished ? "Solved it!" : "Time's up!";
+  else headline = "Time's up — closest chain wins";
+
+  const renderChain = (person)=> person.chain.map((w,i)=>{
+    const prev = person.chain[i-1];
+    if(!prev) return `<div>${w.toLowerCase()}</div>`;
+    const marked = w.split('').map((ch,idx)=> ch!==prev[idx] ? `<b style="color:var(--brass-bright);">${ch.toLowerCase()}</b>` : ch.toLowerCase()).join('');
+    return `<div>${marked}</div>`;
+  }).join('');
+
+  return `
+  <div class="screen">
+    <div class="winner-banner"><h2>${headline}</h2></div>
+    <div class="chain-compare" style="${state.localMode ? 'grid-template-columns:1fr;' : ''}">
+      <div class="card chain-col">
+        <h3>${me.name} (you)</h3>
+        <div class="moves">${Math.max(0, me.chain.length-1)} moves</div>
+        <div class="word-list">${renderChain(me)}</div>
+      </div>
+      ${!state.localMode ? `
+      <div class="card chain-col">
+        <h3>${opp.name}</h3>
+        <div class="moves">${Math.max(0, opp.chain.length-1)} moves</div>
+        <div class="word-list">${renderChain(opp)}</div>
+      </div>` : ''}
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="rematchBtn" style="width:100%;">Play Again</button>
+    </div>
+  </div>`;
+}
+
+/* ============================================================
+   WIRE EVENTS
+   ============================================================ */
+function wireScreen(){
+  if(state.screen === 'home'){
+    document.getElementById('createBtn').onclick = createRoom;
+    document.getElementById('joinBtn').onclick = joinRoom;
+    document.getElementById('soloBtn').onclick = startLocalPractice;
+  }
+  if(state.screen === 'lobby'){
+    const startBtn = document.getElementById('startBtn');
+    if(startBtn) startBtn.onclick = beginCountdown;
+    const tierRow = document.getElementById('tierRow');
+    if(tierRow){
+      tierRow.querySelectorAll('.tier-btn').forEach(btn=>{
+        btn.onclick = ()=>{
+          tierRow.querySelectorAll('.tier-btn').forEach(b=>b.classList.remove('active'));
+          btn.classList.add('active');
+          state.selectedTier = btn.dataset.tier;
+        };
+      });
+    }
+  }
+  if(state.screen === 'playing'){
+    const input = document.getElementById('wordInput');
+    const submitBtn = document.getElementById('submitBtn');
+    if(input){
+      input.focus();
+      input.addEventListener('keydown', e=>{ if(e.key === 'Enter') handleSubmit(); });
+    }
+    if(submitBtn) submitBtn.onclick = handleSubmit;
+    startLocalTimerTick();
+    const wrap = document.getElementById('ladderWrap');
+    if(wrap) wrap.scrollTop = wrap.scrollHeight;
+  }
+  if(state.screen === 'results'){
+    const rb = document.getElementById('rematchBtn');
+    if(rb) rb.onclick = requestRematch;
+  }
+}
+
+/* ============================================================
+   ROOM / LOBBY LOGIC
+   ============================================================ */
+function createRoom(){
+  const name = document.getElementById('nameInput').value.trim() || 'Player 1';
+  Duel.saveName(name);
+  Duel.createRoom('ladderRooms', name, { chain:[], moves:0, finished:false }, { durationSeconds: ROUND_SECONDS_DEFAULT, tier:'medium' })
+    .then(id=>{
+      state.roomId = id;
+      state.playerId = 'p1';
+      subscribeToRoom(id);
+    });
+}
+
+function joinRoom(){
+  const name = document.getElementById('nameInput').value.trim() || 'Player 2';
+  const code = document.getElementById('joinCode').value.trim().toUpperCase();
+  if(!code){ toast('Enter a room code first'); return; }
+  Duel.saveName(name);
+  Duel.joinRoom('ladderRooms', code, name, { chain:[], moves:0, finished:false }).then(result=>{
+    if(!result.ok){
+      toast(result.reason === 'full' ? 'That room is already full' : 'No room with that code');
+      return;
+    }
+    state.roomId = code;
+    state.playerId = 'p2';
+    subscribeToRoom(code);
+  });
+}
+
+function startLocalPractice(){
+  const name = document.getElementById('nameInput').value.trim() || 'You';
+  Duel.saveName(name);
+  state.localMode = true;
+  state.roomId = 'LOCAL';
+  state.playerId = 'p1';
+  state.room = { status:'lobby', p1:{ name, chain:[], moves:0, finished:false }, p2:null, durationSeconds: ROUND_SECONDS_DEFAULT, tier:'medium' };
+  state.screen = 'lobby';
+  render();
+}
+
+function subscribeToRoom(id){
+  if(state.unsub) state.unsub();
+  state.unsub = Duel.subscribeRoom('ladderRooms', id, data=>{
+    const prevStatus = state.room?.status;
+    state.room = data;
+
+    if(data.status === 'lobby') state.screen = 'lobby';
+    else if(data.status === 'countdown') state.screen = 'countdown';
+    else if(data.status === 'playing'){
+      if(prevStatus !== 'playing'){
+        state.roundEndsAt = data.startedAt ? data.startedAt.toMillis() + data.durationSeconds*1000 : null;
+      }
+      state.screen = 'playing';
+    }
+    else if(data.status === 'results') state.screen = 'results';
+
+    render();
+  });
+}
+
+function beginCountdown(){
+  const durInput = document.getElementById('durationInput');
+  const duration = durInput ? parseInt(durInput.value,10) : (state.room.durationSeconds || ROUND_SECONDS_DEFAULT);
+  const tier = state.selectedTier || state.room.tier || 'medium';
+  const puzzle = pickPuzzle(tier);
+
+  if(state.localMode){
+    state.room = {
+      ...state.room, status:'countdown', puzzle, tier,
+      durationSeconds: duration || ROUND_SECONDS_DEFAULT, countdownValue: 3,
+      p1: { ...state.room.p1, chain:[puzzle.start], moves:0, finished:false }
+    };
+    state.screen = 'countdown';
+    render();
+    let n = 3;
+    const iv = setInterval(()=>{
+      n -= 1;
+      if(n >= 0){ state.room = { ...state.room, countdownValue: n }; render(); }
+      else {
+        clearInterval(iv);
+        state.room = { ...state.room, status:'playing', startedAt:null };
+        state.roundEndsAt = Date.now() + state.room.durationSeconds*1000;
+        state.screen = 'playing';
+        render();
+      }
+    }, 800);
+    return;
+  }
+
+  const ref = db.collection('ladderRooms').doc(state.roomId);
+  ref.update({
+    status:'countdown', puzzle, tier,
+    durationSeconds: duration || ROUND_SECONDS_DEFAULT,
+    countdownValue: 3, winner:null,
+    'p1.chain':[puzzle.start], 'p1.moves':0, 'p1.finished':false,
+    'p2.chain':[puzzle.start], 'p2.moves':0, 'p2.finished':false
+  }).then(()=>{
+    let n = 3;
+    const iv = setInterval(()=>{
+      n -= 1;
+      if(n >= 0){ ref.update({ countdownValue: n }); }
+      else {
+        clearInterval(iv);
+        ref.update({ status:'playing', startedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      }
+    }, 800);
+  });
+}
+
+function requestRematch(){
+  if(state.localMode){
+    state.room = { status:'lobby', p1:{ name: state.room.p1.name, chain:[], moves:0, finished:false }, p2:null, durationSeconds: state.room.durationSeconds || ROUND_SECONDS_DEFAULT, tier: state.room.tier };
+    state.screen = 'lobby';
+    render();
+    return;
+  }
+  const ref = db.collection('ladderRooms').doc(state.roomId);
+  ref.update({ status:'lobby', winner:null });
+}
+
+/* ============================================================
+   WORD SUBMISSION
+   ============================================================ */
+async function handleSubmit(){
+  if(state.checking) return;
+  const input = document.getElementById('wordInput');
+  const hint = document.getElementById('hintLine');
+  const row = document.getElementById('inputRow');
+  const puzzle = state.room.puzzle;
+  const me = state.room[state.playerId];
+  const raw = input.value.trim().toUpperCase();
+
+  function reject(msg){
+    hint.textContent = msg;
+    hint.className = 'hint-line bad';
+    row.classList.add('shake');
+    setTimeout(()=>row.classList.remove('shake'), 300);
+  }
+
+  if(raw.length !== puzzle.length){ reject(`Needs to be ${puzzle.length} letters`); return; }
+  const current = me.chain[me.chain.length-1];
+  if(raw === current){ reject('That\'s the word you\'re already on'); return; }
+  if(me.chain.includes(raw)){ reject('Already used that word'); return; }
+  if(diffPositions(current, raw) !== 1){ reject('Change exactly one letter'); return; }
+
+  state.checking = true;
+  hint.textContent = 'Checking...';
+  hint.className = 'hint-line';
+  const ok = await isRealWord(raw);
+  state.checking = false;
+
+  if(!ok){ reject('Not a real word'); return; }
+
+  const newChain = [...me.chain, raw];
+  const finished = raw === puzzle.end;
+
+  // Optimistic local update — don't wait on a Firestore round-trip to
+  // see your own move land; the snapshot listener will reconcile shortly after.
+  state.room[state.playerId] = { ...me, chain: newChain, moves: newChain.length - 1, finished };
+  if(state.localMode && finished){
+    state.room.status = 'results';
+    state.room.winner = 'p1';
+    state.screen = 'results';
+  }
+  render();
+
+  if(state.localMode) return;
+
+  const ref = db.collection('ladderRooms').doc(state.roomId);
+  await ref.update({
+    [`${state.playerId}.chain`]: newChain,
+    [`${state.playerId}.moves`]: newChain.length - 1,
+    [`${state.playerId}.finished`]: finished
+  });
+
+  if(finished){
+    // Atomic claim so two near-simultaneous finishes don't both "win"
+    await db.runTransaction(async (tx)=>{
+      const snap = await tx.get(ref);
+      const data = snap.data();
+      if(data.status === 'playing'){
+        tx.update(ref, { status:'results', winner: state.playerId });
+      }
+    });
+  }
+}
+
+/* ============================================================
+   TIMER
+   ============================================================ */
+function startLocalTimerTick(){
+  if(state.timerInterval) clearInterval(state.timerInterval);
+  const ring = document.getElementById('timerCircle');
+  const num = document.getElementById('timerNum');
+  const circumference = 138; // 2*pi*22, matches the SVG circle radius
+  const duration = state.room.durationSeconds || ROUND_SECONDS_DEFAULT;
+
+  state.timerInterval = setInterval(()=>{
+    if(!state.roundEndsAt) return;
+    const remainingMs = state.roundEndsAt - Date.now();
+    const remaining = Math.max(0, Math.ceil(remainingMs/1000));
+    if(num) num.textContent = remaining;
+    if(ring){
+      const frac = Math.max(0, remainingMs / (duration*1000));
+      ring.setAttribute('stroke-dashoffset', String(circumference * (1-frac)));
+      ring.parentElement.parentElement.classList.toggle('urgent', remaining <= 15);
+    }
+    if(remainingMs <= 0){
+      clearInterval(state.timerInterval);
+      if(state.localMode){
+        if(state.room.status === 'playing'){
+          state.room.status = 'results';
+          state.screen = 'results';
+          render();
+        }
+      } else if(state.playerId === 'p1'){
+        db.collection('ladderRooms').doc(state.roomId).update({ status:'results' }).catch(()=>{});
+      }
+    }
+  }, 200);
+}
+
+render();
+</script>
+</body>
+</html>
