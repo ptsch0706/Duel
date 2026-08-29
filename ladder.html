@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content">
 <title>Duel — Word Ladder Race</title>
 <meta name="theme-color" content="#123524">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -37,6 +37,8 @@
   @keyframes fadein{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
 
   .brand{ text-align:center; margin: 10px 0 28px; }
+  .back-link{ display:inline-block; font-size:13px; color:var(--ivory-dim); text-decoration:none; margin-bottom:4px; }
+  .back-link:active{ color:var(--brass-bright); }
   .brand .kicker{ display:block; font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--brass-bright); opacity:.85; margin-bottom:6px; }
   .brand h1{ font-size:38px; line-height:1; }
 
@@ -160,38 +162,80 @@ const db = Duel.db; // shared Firebase connection from shared.js
 const toast = Duel.toast;
 
 /* ============================================================
-   PUZZLE LIBRARY
-   Each pair below has a hand-verified chain I built myself,
-   changing exactly one letter per step, using only common,
-   non-archaic English words — so we know at least one solution
-   exists. Players aren't limited to that exact path though:
-   any real word, one letter different from their last word,
-   is accepted (checked live against a dictionary API), so they
-   may well find a totally different route to the same target.
+   PUZZLE GENERATION
+   Rather than hand-picked start/end pairs (which turned out to
+   have shorter solutions than intended — SHARE→SCORE solves in
+   2 moves, not 5), puzzles are generated on the fly: build a
+   graph of same-length words from the shared local word list
+   (shared.js), where two words are connected if they differ by
+   exactly one letter, then run a breadth-first search from a
+   random word to find one that's genuinely at least 5 moves away
+   — a real graph-distance guarantee, not a guess.
+
+   Caveat: this guarantee is relative to the local word list.
+   Since live play accepts any real word (checked against the
+   dictionary API too, not just this list), a resourceful player
+   could in principle find a shortcut through a word outside this
+   graph. In practice the local list is large enough (a few
+   thousand words per length) that this should be rare.
    ============================================================ */
-const PUZZLES = [
-  { start:'CAT',   end:'DOG',   length:3, tier:'medium' }, // CAT,COT,DOT,DOG
-  { start:'BAT',   end:'BIG',   length:3, tier:'easy' },   // BAT,BIT,BIG
-  { start:'LOVE',  end:'LIFE',  length:4, tier:'easy' },   // LOVE,LIVE,LIFE
-  { start:'COLD',  end:'WARM',  length:4, tier:'hard' },   // COLD,CORD,CARD,WARD,WARM
-  { start:'HEAD',  end:'TAIL',  length:4, tier:'hard' },   // HEAD,HEAL,TEAL,TELL,TALL,TAIL
-  { start:'HOUSE', end:'MOUSE', length:5, tier:'easy' },   // HOUSE,MOUSE
-  { start:'SHARE', end:'SCORE', length:5, tier:'medium' }, // SHARE,SHORE,SCORE
-  { start:'STONE', end:'SHINE', length:5, tier:'medium' }  // STONE,SHONE,SHINE
-];
-
 const ROUND_SECONDS_DEFAULT = 180;
-
-function pickPuzzle(tier){
-  const pool = tier === 'random' ? PUZZLES : PUZZLES.filter(p=>p.tier===tier);
-  const list = pool.length ? pool : PUZZLES;
-  return list[Math.floor(Math.random()*list.length)];
-}
+const MIN_LADDER_MOVES = 5;
+const MAX_LADDER_MOVES = 9;
 
 function diffPositions(a,b){
   let n=0;
   for(let i=0;i<a.length;i++) if(a[i]!==b[i]) n++;
   return n;
+}
+
+const _graphCache = {};
+function getWordGraph(length){
+  if(_graphCache[length]) return _graphCache[length];
+  const words = [...DUEL_LOCAL_WORDS].filter(w=>w.length===length);
+  const graph = new Map();
+  words.forEach(w=>graph.set(w, []));
+  for(let i=0;i<words.length;i++){
+    for(let j=i+1;j<words.length;j++){
+      if(diffPositions(words[i], words[j]) === 1){
+        graph.get(words[i]).push(words[j]);
+        graph.get(words[j]).push(words[i]);
+      }
+    }
+  }
+  _graphCache[length] = { words, graph };
+  return _graphCache[length];
+}
+
+function bfsDistances(graph, start){
+  const dist = new Map([[start, 0]]);
+  const queue = [start];
+  while(queue.length){
+    const cur = queue.shift();
+    for(const next of graph.get(cur)){
+      if(!dist.has(next)){ dist.set(next, dist.get(cur)+1); queue.push(next); }
+    }
+  }
+  return dist;
+}
+
+function generatePuzzle(lengthChoice){
+  const lengths = lengthChoice === 'random' ? [4,5,6] : [parseInt(lengthChoice,10)];
+  for(let tries=0; tries<40; tries++){
+    const length = lengths[Math.floor(Math.random()*lengths.length)];
+    const { words, graph } = getWordGraph(length);
+    if(words.length < 20) continue;
+    const start = words[Math.floor(Math.random()*words.length)];
+    const dist = bfsDistances(graph, start);
+    const candidates = [...dist.entries()].filter(([w,d])=> d >= MIN_LADDER_MOVES && d <= MAX_LADDER_MOVES);
+    if(candidates.length){
+      const [end, moves] = candidates[Math.floor(Math.random()*candidates.length)];
+      return { start, end, length, moves };
+    }
+  }
+  // Extremely unlikely fallback — a verified 5-move pair, just in case
+  // generation can't find one (e.g. a near-empty word graph).
+  return { start:'HEAD', end:'TAIL', length:4, moves:5 };
 }
 
 const isRealWord = Duel.isRealWord.bind(Duel); // local-list-first check from shared.js
@@ -224,6 +268,7 @@ function render(){
 function renderHome(){
   return `
   <div class="screen">
+    <a href="index.html" class="back-link">&larr; Duel</a>
     <div class="brand">
       <span class="kicker">Two Players · Same Puzzle</span>
       <h1>Word Ladder<br>Race</h1>
@@ -252,7 +297,7 @@ function renderHome(){
 function renderLobby(){
   const room = state.room;
   const bothIn = state.localMode ? true : (room && room.p1 && room.p2);
-  const tier = room?.tier || 'medium';
+  const tier = room?.tier || '4';
   return `
   <div class="screen">
     <div class="brand" style="margin-bottom:14px;">
@@ -268,11 +313,11 @@ function renderLobby(){
     </div>
     ${bothIn && (state.playerId==='p1' || state.localMode) ? `
     <div class="card">
-      <label>Difficulty</label>
+      <label>Word length (every puzzle is at least ${MIN_LADDER_MOVES} moves apart)</label>
       <div class="tier-row" id="tierRow">
-        <button class="tier-btn ${tier==='easy'?'active':''}" data-tier="easy">Easy</button>
-        <button class="tier-btn ${tier==='medium'?'active':''}" data-tier="medium">Medium</button>
-        <button class="tier-btn ${tier==='hard'?'active':''}" data-tier="hard">Hard</button>
+        <button class="tier-btn ${tier==='4'?'active':''}" data-tier="4">4-Letter</button>
+        <button class="tier-btn ${tier==='5'?'active':''}" data-tier="5">5-Letter</button>
+        <button class="tier-btn ${tier==='6'?'active':''}" data-tier="6">6-Letter</button>
         <button class="tier-btn ${tier==='random'?'active':''}" data-tier="random">Random</button>
       </div>
       <label>Round length (seconds)</label>
@@ -354,6 +399,7 @@ function renderResults(){
 
   return `
   <div class="screen">
+    <a href="index.html" class="back-link">&larr; Duel</a>
     <div class="winner-banner"><h2>${headline}</h2></div>
     <div class="chain-compare" style="${state.localMode ? 'grid-template-columns:1fr;' : ''}">
       <div class="card chain-col">
@@ -421,7 +467,7 @@ function wireScreen(){
 function createRoom(){
   const name = document.getElementById('nameInput').value.trim() || 'Player 1';
   Duel.saveName(name);
-  Duel.createRoom('ladderRooms', name, { chain:[], moves:0, finished:false }, { durationSeconds: ROUND_SECONDS_DEFAULT, tier:'medium' })
+  Duel.createRoom('ladderRooms', name, { chain:[], moves:0, finished:false }, { durationSeconds: ROUND_SECONDS_DEFAULT, tier:'4' })
     .then(id=>{
       state.roomId = id;
       state.playerId = 'p1';
@@ -451,7 +497,7 @@ function startLocalPractice(){
   state.localMode = true;
   state.roomId = 'LOCAL';
   state.playerId = 'p1';
-  state.room = { status:'lobby', p1:{ name, chain:[], moves:0, finished:false }, p2:null, durationSeconds: ROUND_SECONDS_DEFAULT, tier:'medium' };
+  state.room = { status:'lobby', p1:{ name, chain:[], moves:0, finished:false }, p2:null, durationSeconds: ROUND_SECONDS_DEFAULT, tier:'4' };
   state.screen = 'lobby';
   render();
 }
@@ -479,8 +525,8 @@ function subscribeToRoom(id){
 function beginCountdown(){
   const durInput = document.getElementById('durationInput');
   const duration = durInput ? parseInt(durInput.value,10) : (state.room.durationSeconds || ROUND_SECONDS_DEFAULT);
-  const tier = state.selectedTier || state.room.tier || 'medium';
-  const puzzle = pickPuzzle(tier);
+  const tier = state.selectedTier || state.room.tier || '4';
+  const puzzle = generatePuzzle(tier);
 
   if(state.localMode){
     state.room = {
@@ -637,6 +683,28 @@ function startLocalTimerTick(){
     }
   }, 200);
 }
+
+/* ============================================================
+   KEYBOARD OVERLAY FIX
+   The interactive-widget=overlays-content viewport setting (in
+   the <head>) handles this on newer browsers, but not all of
+   them yet — this keeps #app pinned to the actual visible area
+   reported by the VisualViewport API, so opening the keyboard
+   shrinks the app in place instead of the page scrolling up and
+   hiding content above the input.
+   ============================================================ */
+function setupKeyboardFix(){
+  if(!window.visualViewport) return;
+  const app = document.getElementById('app');
+  function update(){
+    app.style.height = window.visualViewport.height + 'px';
+    window.scrollTo(0, 0);
+  }
+  window.visualViewport.addEventListener('resize', update);
+  window.visualViewport.addEventListener('scroll', update);
+  update();
+}
+setupKeyboardFix();
 
 render();
 </script>

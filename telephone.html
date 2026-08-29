@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content">
+<title>Duel — Telephone Draw</title>
+<meta name="theme-color" content="#123524">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- Firebase config + room helpers live in shared.js, same as the other games.
+     See shared.js for the Firebase Console setup steps and Firestore rule. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="shared.js"></script>
+
+<style>
+  /* Same felt/ivory/brass identity as the rest of Duel */
+  :root{
+    --felt: #123524; --felt-deep:#0c2419; --felt-light:#1d4a34;
+    --ivory: #f4ecd8; --ivory-dim: #e3d7b4; --ink: #22201c;
+    --brass: #c9a227; --brass-bright: #e6c04f; --brass-dark: #8f6f16;
+    --alert: #c1440e; --success: #7a9b5c;
+    --line: rgba(244,236,216,0.14);
+    --shadow-hard: 0 6px 0 rgba(0,0,0,0.35);
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    height:100%; margin:0; overscroll-behavior:none;
+    background: radial-gradient(120% 140% at 50% -10%, var(--felt-light), var(--felt) 55%, var(--felt-deep) 100%);
+    color:var(--ivory); font-family:'Work Sans', sans-serif; -webkit-user-select:none; user-select:none;
+  }
+  #app{ min-height:100dvh; display:flex; flex-direction:column; padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom)); }
+  h1,h2,h3{ font-family:'Fraunces', serif; font-weight:700; margin:0; letter-spacing:-0.01em; }
+  .screen{ flex:1; display:flex; flex-direction:column; animation: fadein .35s ease both; min-height:0; }
+  @keyframes fadein{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+
+  .brand{ text-align:center; margin: 10px 0 28px; }
+  .back-link{ display:inline-block; font-size:13px; color:var(--ivory-dim); text-decoration:none; margin-bottom:4px; }
+  .back-link:active{ color:var(--brass-bright); }
+  .brand .kicker{ display:block; font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--brass-bright); opacity:.85; margin-bottom:6px; }
+  .brand h1{ font-size:38px; line-height:1; }
+
+  label{ font-size:12px; text-transform:uppercase; letter-spacing:.12em; color:var(--ivory-dim); display:block; margin: 18px 0 8px; }
+  input[type=text]{
+    width:100%; padding:14px 16px; font-size:17px; font-family:'Work Sans';
+    background:var(--felt-light); border:1px solid var(--line); border-radius:10px;
+    color:var(--ivory); outline:none;
+  }
+  input:focus{ border-color:var(--brass); }
+
+  .btn{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    padding:15px 20px; border-radius:12px; border:none; cursor:pointer;
+    font-family:'Work Sans'; font-weight:600; font-size:16px;
+    transition: transform .08s ease;
+  }
+  .btn:active{ transform: translateY(2px); }
+  .btn-primary{ background:var(--brass); color:#241c02; box-shadow:var(--shadow-hard); }
+  .btn-primary:active{ box-shadow:0 3px 0 rgba(0,0,0,.35); }
+  .btn-ghost{ background:transparent; color:var(--ivory-dim); border:1px solid var(--line); }
+  .btn-row{ display:flex; gap:10px; margin-top:22px; }
+  .btn-row .btn{ flex:1; }
+
+  .card{ background:rgba(0,0,0,0.16); border:1px solid var(--line); border-radius:16px; padding:20px; margin-top:16px; }
+  .muted{ color:var(--ivory-dim); font-size:14px; line-height:1.5; }
+  .center{ text-align:center; }
+
+  .code-display{
+    font-family:'Fraunces'; font-weight:700; font-size:34px; letter-spacing:.12em;
+    text-align:center; padding:16px; background:rgba(0,0,0,0.2); border-radius:12px;
+    border:1px dashed var(--brass); color:var(--brass-bright); margin-top:10px;
+  }
+  .spinner{ width:16px; height:16px; border-radius:50%; border:2px solid rgba(244,236,216,.25); border-top-color:var(--brass-bright); animation:spin 0.8s linear infinite; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .tier-row{ display:flex; gap:8px; margin-top:8px; }
+  .tier-btn{
+    flex:1; padding:10px; border-radius:10px; border:1px solid var(--line); background:transparent;
+    color:var(--ivory-dim); font-family:'Work Sans'; font-weight:600; font-size:13px; cursor:pointer;
+  }
+  .tier-btn.active{ background:var(--brass); color:#241c02; border-color:var(--brass); }
+
+  /* ---- progress while waiting ---- */
+  .progress-row{ display:flex; gap:12px; margin-top:16px; }
+  .progress-col{ flex:1; text-align:center; }
+  .progress-col .label{ font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--ivory-dim); margin-bottom:6px; }
+  .progress-bar{ height:8px; border-radius:6px; background:rgba(244,236,216,.12); overflow:hidden; }
+  .progress-fill{ height:100%; background:var(--brass-bright); transition:width .3s ease; }
+  .progress-count{ font-size:12px; color:var(--ivory-dim); margin-top:4px; }
+
+  /* ---- the task card (write / draw / guess) ---- */
+  .prompt-box{
+    background:rgba(0,0,0,.18); border:1px solid var(--line); border-radius:14px;
+    padding:16px; margin-bottom:14px; text-align:center;
+  }
+  .prompt-box .from{ font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--brass-bright); margin-bottom:8px; }
+  .prompt-box .phrase{ font-family:'Fraunces'; font-weight:700; font-size:22px; }
+  .prompt-box img{ max-width:100%; border-radius:8px; background:var(--ivory); }
+
+  .canvas-wrap{ display:flex; justify-content:center; margin:6px 0; }
+  canvas{
+    background:var(--ivory); border-radius:14px; touch-action:none;
+    box-shadow:0 4px 0 #b6a875;
+    width:100%; max-width:360px; aspect-ratio:1/1;
+  }
+  .canvas-tools{ display:flex; gap:10px; margin-top:12px; }
+  .canvas-tools .btn{ flex:1; }
+
+  .queue-badge{
+    display:inline-block; font-size:11px; color:var(--brass-bright); border:1px solid var(--brass-dark);
+    padding:3px 9px; border-radius:20px; margin-bottom:10px;
+  }
+
+  /* ---- reveal / results: the telephone cord ---- */
+  .chain-title{ font-family:'Fraunces'; font-weight:700; font-size:18px; margin: 22px 0 10px; text-align:center; }
+  .cord-wrap{ position:relative; padding-left:22px; margin-bottom:8px; }
+  .cord-wrap::before{
+    content:''; position:absolute; left:9px; top:8px; bottom:8px; width:3px;
+    background:repeating-linear-gradient(var(--brass), var(--brass) 6px, transparent 6px, transparent 11px);
+    border-radius:2px;
+  }
+  .cord-entry{ position:relative; margin-bottom:14px; animation: coil .35s ease both; }
+  @keyframes coil{ from{ opacity:0; transform:translateX(-8px);} to{ opacity:1; transform:translateX(0);} }
+  .cord-entry::before{
+    content:''; position:absolute; left:-22px; top:10px; width:11px; height:11px; border-radius:50%;
+    background:var(--brass-bright); box-shadow:0 0 0 4px var(--felt);
+  }
+  .cord-entry .author{ font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--ivory-dim); margin-bottom:4px; }
+  .cord-entry .text-bubble{
+    font-family:'Fraunces'; font-weight:700; font-size:18px;
+    background:rgba(244,236,216,.08); border:1px solid var(--line); border-radius:10px; padding:10px 14px;
+  }
+  .cord-entry img{ max-width:220px; width:100%; border-radius:10px; background:var(--ivory); box-shadow:0 3px 0 #b6a875; }
+
+  .toast{
+    position:fixed; left:20px; right:20px; bottom:max(20px, env(safe-area-inset-bottom));
+    background:var(--felt-light); border:1px solid var(--brass); border-radius:12px;
+    padding:14px 16px; font-size:14px; text-align:center; box-shadow:0 8px 24px rgba(0,0,0,.4);
+    transform:translateY(calc(100% + 60px)); transition:transform .3s ease; z-index:50;
+  }
+  .toast.show{ transform:translateY(0); }
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const db = Duel.db; // shared Firebase connection from shared.js
+const toast = Duel.toast;
+
+/* ============================================================
+   HOW THIS GAME IS STRUCTURED FOR EXACTLY TWO PLAYERS
+   The classic party game passes a folded paper around a big
+   circle. With only two players there's no circle to pass
+   around — so instead there are two independent chains running
+   at once:
+     Chain A: seeded by p1's secret phrase
+     Chain B: seeded by p2's secret phrase
+   Within each chain, authorship simply alternates p1/p2/p1/p2...
+   the same as passing paper back and forth between two people.
+   That means at any moment, each player is always the one whose
+   turn it is on exactly one of the two chains — so both players
+   are always busy at once, just on different chains, and each
+   person gets a mix of drawing and guessing turns over the
+   course of the game (drawing on their partner's chain,
+   guessing on their own — or vice versa, depending on parity).
+   Nobody ever guesses their own drawing, which would defeat
+   the point.
+   ============================================================ */
+
+const CHAIN_LENGTH_OPTIONS = { short:4, medium:6, long:8 };
+const CANVAS_SIZE = 360; // logical px; actual canvas scales for device pixel ratio
+
+let state = {
+  screen: 'home',
+  roomId: null,
+  playerId: null,
+  room: null,
+  unsub: null,
+  localMode: false,
+  selectedTier: null,
+  activeTaskIndex: 0, // if multiple tasks are ready, which one is showing
+  canvas: null, // { ctx, drawing, lastX, lastY }
+};
+
+function render(){
+  const app = document.getElementById('app');
+  if(state.screen === 'home') app.innerHTML = renderHome();
+  else if(state.screen === 'lobby') app.innerHTML = renderLobby();
+  else if(state.screen === 'playing') app.innerHTML = renderPlaying();
+  else if(state.screen === 'results') app.innerHTML = renderResults();
+  wireScreen();
+}
+
+function renderHome(){
+  return `
+  <div class="screen">
+    <a href="index.html" class="back-link">&larr; Duel</a>
+    <div class="brand">
+      <span class="kicker">Two Players · Two Chains</span>
+      <h1>Telephone<br>Draw</h1>
+    </div>
+    <div class="card">
+      <label>Your name</label>
+      <input type="text" id="nameInput" placeholder="e.g. Phil" maxlength="20" value="${Duel.getSavedName()}">
+      <div class="btn-row" style="margin-top:22px;">
+        <button class="btn btn-primary" id="createBtn">Start a room</button>
+      </div>
+    </div>
+    <div class="card">
+      <label>Have a room code?</label>
+      <input type="text" id="joinCode" placeholder="4-letter code" maxlength="4" style="text-transform:uppercase;">
+      <div class="btn-row">
+        <button class="btn btn-ghost" id="joinBtn">Join room</button>
+      </div>
+    </div>
+    <div class="card center">
+      <div class="muted" style="margin-bottom:12px;">No Firebase set up yet? Test the drawing tool solo — no network needed. (You'll play both sides yourself, so it won't have the real surprise — it's just for checking the flow works.)</div>
+      <button class="btn btn-ghost" id="soloBtn" style="width:100%;">Practice Solo (no Firebase)</button>
+    </div>
+  </div>`;
+}
+
+function renderLobby(){
+  const room = state.room;
+  const bothIn = state.localMode ? true : (room && room.p1 && room.p2);
+  const tier = room?.tier || 'medium';
+  return `
+  <div class="screen">
+    <a href="index.html" class="back-link">&larr; Duel</a>
+    <div class="brand" style="margin-bottom:14px;">
+      <span class="kicker">${state.localMode ? 'Solo Practice' : 'Room Code'}</span>
+      <div class="code-display">${state.localMode ? 'LOCAL' : state.roomId}</div>
+    </div>
+    <div class="card center">
+      <div class="muted" style="margin-bottom:10px;">${state.localMode ? room.p1.name + ' (practice round — playing both sides)' : (room?.p1?.name || '...') + ' vs ' + (room?.p2?.name || 'waiting for opponent')}</div>
+      ${bothIn
+        ? `<button class="btn btn-primary" id="startBtn" style="width:100%;">Start Round</button>`
+        : `<div class="spinner" style="margin:0 auto;"></div><div class="muted" style="margin-top:10px;">Waiting for the other player to join...</div>`
+      }
+    </div>
+    ${bothIn && (state.playerId==='p1' || state.localMode) ? `
+    <div class="card">
+      <label>Chain length</label>
+      <div class="tier-row" id="tierRow">
+        <button class="tier-btn ${tier==='short'?'active':''}" data-tier="short">Short (4)</button>
+        <button class="tier-btn ${tier==='medium'?'active':''}" data-tier="medium">Medium (6)</button>
+        <button class="tier-btn ${tier==='long'?'active':''}" data-tier="long">Long (8)</button>
+      </div>
+    </div>` : ''}
+  </div>`;
+}
+
+/* Figure out what — if anything — this player should be doing right now,
+   across both chains (or just chain A in solo mode). */
+function getMyTasks(){
+  const room = state.room;
+  const chainIds = state.localMode ? ['A'] : ['A','B'];
+  const tasks = [];
+  chainIds.forEach(chainId=>{
+    const chain = room['chain'+chainId] || [];
+    const seeder = chainId === 'A' ? 'p1' : 'p2';
+    if(chain.length >= room.chainLength) return; // this chain is complete
+    const nextIndex = chain.length;
+    const nextAuthor = state.localMode ? 'p1'
+      : (nextIndex === 0 ? seeder : (chain[chain.length-1].author === 'p1' ? 'p2' : 'p1'));
+    if(nextAuthor !== state.playerId) return;
+    const type = nextIndex === 0 ? 'text' : (nextIndex % 2 === 1 ? 'drawing' : 'text');
+    tasks.push({ chainId, nextIndex, type, prevEntry: chain[chain.length-1] || null });
+  });
+  return tasks;
+}
+
+function renderPlaying(){
+  const room = state.room;
+  const tasks = getMyTasks();
+
+  if(tasks.length === 0){
+    // Nothing to do right now — show live progress on both chains
+    const chainIds = state.localMode ? ['A'] : ['A','B'];
+    return `
+    <div class="screen center" style="justify-content:center;">
+      <div class="spinner" style="margin:0 auto;"></div>
+      <h2 style="margin-top:16px;">Waiting on your partner...</h2>
+      <div class="progress-row">
+        ${chainIds.map(id=>{
+          const len = (room['chain'+id]||[]).length;
+          const pct = Math.round(100*len/room.chainLength);
+          return `<div class="progress-col">
+            <div class="label">Chain ${id}</div>
+            <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;"></div></div>
+            <div class="progress-count">${len}/${room.chainLength}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  }
+
+  if(state.activeTaskIndex >= tasks.length) state.activeTaskIndex = 0;
+  const task = tasks[state.activeTaskIndex];
+  const extra = tasks.length > 1 ? `<div class="queue-badge">+${tasks.length-1} more waiting after this</div>` : '';
+
+  if(task.type === 'text'){
+    const isSeed = task.nextIndex === 0;
+    return `
+    <div class="screen">
+      ${extra}
+      ${isSeed
+        ? `<div class="prompt-box"><div class="from">Write a secret phrase</div><div class="muted">Your partner will draw this — nobody else sees it.</div></div>`
+        : `<div class="prompt-box"><div class="from">Chain ${task.chainId} — what is this?</div><img src="${task.prevEntry.content}" alt="drawing to guess"></div>`
+      }
+      <input type="text" id="textInput" placeholder="${isSeed ? 'e.g. a dog surfing on a pizza' : 'your best guess'}" maxlength="80" autocomplete="off">
+      <div class="btn-row">
+        <button class="btn btn-primary" id="submitTextBtn" style="width:100%;">Submit</button>
+      </div>
+    </div>`;
+  }
+
+  // type === 'drawing'
+  return `
+  <div class="screen">
+    ${extra}
+    <div class="prompt-box">
+      <div class="from">Chain ${task.chainId} — draw this</div>
+      <div class="phrase">${task.prevEntry.content}</div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="drawCanvas" width="${CANVAS_SIZE}" height="${CANVAS_SIZE}"></canvas>
+    </div>
+    <div class="canvas-tools">
+      <button class="btn btn-ghost" id="clearBtn">Clear</button>
+      <button class="btn btn-primary" id="submitDrawBtn">Done</button>
+    </div>
+  </div>`;
+}
+
+function renderResults(){
+  const room = state.room;
+  const chainIds = state.localMode ? ['A'] : ['A','B'];
+
+  const renderChain = (chain)=> chain.map(entry=>`
+    <div class="cord-entry">
+      <div class="author">${room[entry.author]?.name || entry.author}</div>
+      ${entry.type === 'text'
+        ? `<div class="text-bubble">${entry.content}</div>`
+        : `<img src="${entry.content}" alt="drawing">`}
+    </div>
+  `).join('');
+
+  return `
+  <div class="screen">
+    <a href="index.html" class="back-link">&larr; Duel</a>
+    <div class="brand"><h1>The Reveal</h1></div>
+    ${chainIds.map(id=>`
+      <div class="chain-title">Chain ${id}</div>
+      <div class="cord-wrap">${renderChain(room['chain'+id] || [])}</div>
+    `).join('')}
+    <div class="btn-row">
+      <button class="btn btn-primary" id="rematchBtn" style="width:100%;">Play Again</button>
+    </div>
+  </div>`;
+}
+
+/* ============================================================
+   WIRE EVENTS
+   ============================================================ */
+function wireScreen(){
+  if(state.screen === 'home'){
+    document.getElementById('createBtn').onclick = createRoom;
+    document.getElementById('joinBtn').onclick = joinRoom;
+    document.getElementById('soloBtn').onclick = startLocalPractice;
+  }
+  if(state.screen === 'lobby'){
+    const startBtn = document.getElementById('startBtn');
+    if(startBtn) startBtn.onclick = beginRound;
+    const tierRow = document.getElementById('tierRow');
+    if(tierRow){
+      tierRow.querySelectorAll('.tier-btn').forEach(btn=>{
+        btn.onclick = ()=>{
+          tierRow.querySelectorAll('.tier-btn').forEach(b=>b.classList.remove('active'));
+          btn.classList.add('active');
+          state.selectedTier = btn.dataset.tier;
+        };
+      });
+    }
+  }
+  if(state.screen === 'playing'){
+    const submitTextBtn = document.getElementById('submitTextBtn');
+    if(submitTextBtn){
+      submitTextBtn.onclick = submitTextTask;
+      const input = document.getElementById('textInput');
+      input.focus();
+      input.addEventListener('keydown', e=>{ if(e.key === 'Enter') submitTextTask(); });
+    }
+    const submitDrawBtn = document.getElementById('submitDrawBtn');
+    if(submitDrawBtn){
+      submitDrawBtn.onclick = submitDrawTask;
+      document.getElementById('clearBtn').onclick = clearCanvas;
+      wireCanvas();
+    }
+  }
+  if(state.screen === 'results'){
+    const rb = document.getElementById('rematchBtn');
+    if(rb) rb.onclick = requestRematch;
+  }
+}
+
+/* ============================================================
+   ROOM / LOBBY LOGIC
+   ============================================================ */
+function createRoom(){
+  const name = document.getElementById('nameInput').value.trim() || 'Player 1';
+  Duel.saveName(name);
+  Duel.createRoom('telephoneRooms', name, {}, { chainA:[], chainB:[], chainLength: CHAIN_LENGTH_OPTIONS.medium, tier:'medium' })
+    .then(id=>{
+      state.roomId = id;
+      state.playerId = 'p1';
+      subscribeToRoom(id);
+    });
+}
+
+function joinRoom(){
+  const name = document.getElementById('nameInput').value.trim() || 'Player 2';
+  const code = document.getElementById('joinCode').value.trim().toUpperCase();
+  if(!code){ toast('Enter a room code first'); return; }
+  Duel.saveName(name);
+  Duel.joinRoom('telephoneRooms', code, name, {}).then(result=>{
+    if(!result.ok){
+      toast(result.reason === 'full' ? 'That room is already full' : 'No room with that code');
+      return;
+    }
+    state.roomId = code;
+    state.playerId = 'p2';
+    subscribeToRoom(code);
+  });
+}
+
+function startLocalPractice(){
+  const name = document.getElementById('nameInput').value.trim() || 'You';
+  Duel.saveName(name);
+  state.localMode = true;
+  state.roomId = 'LOCAL';
+  state.playerId = 'p1';
+  state.room = { status:'lobby', p1:{ name }, p2:null, chainA:[], chainB:[], chainLength: CHAIN_LENGTH_OPTIONS.medium, tier:'medium' };
+  state.screen = 'lobby';
+  render();
+}
+
+function subscribeToRoom(id){
+  if(state.unsub) state.unsub();
+  state.unsub = Duel.subscribeRoom('telephoneRooms', id, data=>{
+    state.room = data;
+    state.activeTaskIndex = 0;
+    if(data.status === 'lobby') state.screen = 'lobby';
+    else if(data.status === 'playing') state.screen = 'playing';
+    else if(data.status === 'results') state.screen = 'results';
+    render();
+  });
+}
+
+function beginRound(){
+  const tier = state.selectedTier || state.room.tier || 'medium';
+  const chainLength = CHAIN_LENGTH_OPTIONS[tier] || CHAIN_LENGTH_OPTIONS.medium;
+
+  if(state.localMode){
+    state.room = { ...state.room, status:'playing', tier, chainLength, chainA:[], chainB:[] };
+    state.screen = 'playing';
+    render();
+    return;
+  }
+
+  const ref = db.collection('telephoneRooms').doc(state.roomId);
+  ref.update({ status:'playing', tier, chainLength, chainA:[], chainB:[] });
+}
+
+function requestRematch(){
+  if(state.localMode){
+    state.room = { status:'lobby', p1:{ name: state.room.p1.name }, p2:null, chainA:[], chainB:[], chainLength: state.room.chainLength, tier: state.room.tier };
+    state.screen = 'lobby';
+    render();
+    return;
+  }
+  const ref = db.collection('telephoneRooms').doc(state.roomId);
+  ref.update({ status:'lobby' });
+}
+
+/* ============================================================
+   TASK SUBMISSION
+   ============================================================ */
+function appendEntry(chainId, entry){
+  const key = 'chain' + chainId;
+  const newChain = [...(state.room[key] || []), entry];
+
+  if(state.localMode){
+    state.room[key] = newChain;
+    checkComplete();
+    state.screen = state.room.status === 'results' ? 'results' : 'playing';
+    render();
+    return;
+  }
+
+  const ref = db.collection('telephoneRooms').doc(state.roomId);
+  const updated = { [key]: newChain };
+  ref.update(updated).then(()=>{
+    // Whoever just finished the entry that completes both chains flips
+    // the room to results — checked against the freshest local copy.
+    const merged = { ...state.room, [key]: newChain };
+    const aDone = (merged.chainA||[]).length >= merged.chainLength;
+    const bDone = (merged.chainB||[]).length >= merged.chainLength;
+    if(aDone && bDone){
+      ref.update({ status:'results' });
+    }
+  });
+}
+
+function checkComplete(){
+  const aDone = (state.room.chainA||[]).length >= state.room.chainLength;
+  const bDone = state.localMode ? true : (state.room.chainB||[]).length >= state.room.chainLength;
+  if(aDone && bDone) state.room.status = 'results';
+}
+
+function submitTextTask(){
+  const input = document.getElementById('textInput');
+  const text = input.value.trim();
+  if(!text){ toast('Type something first'); return; }
+  const tasks = getMyTasks();
+  const task = tasks[state.activeTaskIndex];
+  appendEntry(task.chainId, { type:'text', author: state.playerId, content: text });
+}
+
+function submitDrawTask(){
+  const canvas = document.getElementById('drawCanvas');
+  const dataUrl = canvas.toDataURL('image/png');
+  const tasks = getMyTasks();
+  const task = tasks[state.activeTaskIndex];
+  appendEntry(task.chainId, { type:'drawing', author: state.playerId, content: dataUrl });
+}
+
+/* ============================================================
+   DRAWING CANVAS — simple freehand strokes, finger or mouse
+   ============================================================ */
+function clearCanvas(){
+  const canvas = document.getElementById('drawCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+function wireCanvas(){
+  const canvas = document.getElementById('drawCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#22201c';
+
+  let drawing = false, lastX = 0, lastY = 0;
+
+  function pos(e){
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  }
+
+  canvas.addEventListener('pointerdown', e=>{
+    drawing = true;
+    const p = pos(e);
+    lastX = p.x; lastY = p.y;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, ctx.lineWidth/2, 0, Math.PI*2);
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fill();
+  });
+  canvas.addEventListener('pointermove', e=>{
+    if(!drawing) return;
+    const p = pos(e);
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    lastX = p.x; lastY = p.y;
+  });
+  window.addEventListener('pointerup', ()=>{ drawing = false; });
+}
+
+/* ============================================================
+   KEYBOARD OVERLAY FIX — see ladder.html for the full explanation.
+   ============================================================ */
+function setupKeyboardFix(){
+  if(!window.visualViewport) return;
+  const app = document.getElementById('app');
+  function update(){
+    app.style.height = window.visualViewport.height + 'px';
+    window.scrollTo(0, 0);
+  }
+  window.visualViewport.addEventListener('resize', update);
+  window.visualViewport.addEventListener('scroll', update);
+  update();
+}
+setupKeyboardFix();
+
+render();
+</script>
+</body>
+</html>

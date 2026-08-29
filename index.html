@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content">
 <title>Duel</title>
 <meta name="theme-color" content="#123524">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -84,13 +84,13 @@
       </div>
       <div class="badge">Play</div>
     </a>
-    <div class="game-tile disabled">
+    <a class="game-tile" href="telephone.html" id="telephoneTile">
       <div>
         <div class="title">Telephone Draw</div>
         <div class="desc">Draw it, guess it, draw it again</div>
       </div>
-      <div class="badge">Soon</div>
-    </div>
+      <div class="badge">Play</div>
+    </a>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -101,7 +101,7 @@
   nameInput.addEventListener('input', ()=> Duel.saveName(nameInput.value.trim()));
 
   // Require a name before letting them tap into a game
-  ['boggleTile','ladderTile'].forEach(id=>{
+  ['boggleTile','ladderTile','telephoneTile'].forEach(id=>{
     const el = document.getElementById(id);
     if(el) el.addEventListener('click', (e)=>{
       if(!nameInput.value.trim()){

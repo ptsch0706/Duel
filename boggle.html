@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content">
 <title>Duel — Speed Boggle</title>
 <meta name="theme-color" content="#123524">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -48,6 +48,8 @@
   @keyframes fadein{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
 
   .brand{ text-align:center; margin: 10px 0 28px; }
+  .back-link{ display:inline-block; font-size:13px; color:var(--ivory-dim); text-decoration:none; margin-bottom:4px; }
+  .back-link:active{ color:var(--brass-bright); }
   .brand .kicker{ display:block; font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--brass-bright); opacity:.85; margin-bottom:6px; }
   .brand h1{ font-size:40px; line-height:1; }
   .brand h1 .vs{ color:var(--brass-bright); font-style:italic; font-weight:600; }
@@ -102,6 +104,7 @@
 
   /* ---- word tray ---- */
   .tray{
+    position:relative;
     min-height:52px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
     padding:10px 14px; background:rgba(0,0,0,.18); border-radius:12px; margin-bottom:14px;
     border:1px solid var(--line);
@@ -111,6 +114,17 @@
   .tray.flash-bad{ animation:flashbad .4s ease; }
   @keyframes flashgood{ 0%{ background:rgba(122,155,92,.35);} 100%{ background:rgba(0,0,0,.18);} }
   @keyframes flashbad{ 0%{ background:rgba(193,68,14,.35);} 100%{ background:rgba(0,0,0,.18);} }
+
+  .score-pop{
+    position:absolute; right:14px; top:6px; font-family:'Fraunces'; font-weight:700;
+    font-size:18px; color:var(--brass-bright); pointer-events:none;
+    animation: scorepop .7s ease forwards;
+  }
+  @keyframes scorepop{
+    0%{ opacity:0; transform:translateY(0) scale(.8); }
+    20%{ opacity:1; transform:translateY(-4px) scale(1.15); }
+    100%{ opacity:0; transform:translateY(-26px) scale(1); }
+  }
 
   .found-count{ margin-left:auto; font-size:12px; color:var(--ivory-dim); }
 
@@ -220,6 +234,7 @@ let state = {
   boardSize: 4,
   currentPath: [],      // array of tile indices selected this drag
   foundWords: new Set(),
+  score: 0,
   dragging: false,
   timerInterval: null,
   scoringDone: false,
@@ -227,7 +242,6 @@ let state = {
 };
 
 const toast = Duel.toast; // thin alias so existing calls below don't need renaming
-const isRealWord = Duel.isRealWord.bind(Duel); // local-list-first check from shared.js
 
 /* ============================================================
    RENDER — a tiny hand-rolled router, one function per screen
@@ -246,6 +260,7 @@ function render(){
 function renderHome(){
   return `
   <div class="screen">
+    <a href="index.html" class="back-link">&larr; Duel</a>
     <div class="brand">
       <span class="kicker">Two Players · Same Board</span>
       <h1>Speed<br><span class="vs">Boggle</span> Duel</h1>
@@ -324,7 +339,7 @@ function renderPlaying(){
     </div>
     <div class="tray" id="tray">
       <div class="current" id="currentWord">&nbsp;</div>
-      <div class="found-count" id="myCount">${state.foundWords.size} found</div>
+      <div class="found-count" id="myCount">${state.foundWords.size} found · ${state.score} pts</div>
     </div>
     <div class="board-wrap">
       <div class="board" id="board" style="grid-template-columns:repeat(${n},1fr);">
@@ -350,6 +365,7 @@ function renderResults(){
   if(state.localMode){
     return `
     <div class="screen">
+      <a href="index.html" class="back-link">&larr; Duel</a>
       <div class="winner-banner">
         <h2>Practice round complete</h2>
       </div>
@@ -376,6 +392,7 @@ function renderResults(){
                : null;
   return `
   <div class="screen">
+    <a href="index.html" class="back-link">&larr; Duel</a>
     <div class="winner-banner">
       <h2>${winner ? winner + ' wins the round!' : "It's a tie!"}</h2>
     </div>
@@ -480,6 +497,7 @@ function subscribeToRoom(id){
     else if(data.status === 'playing'){
       if(prevStatus !== 'playing'){
         state.foundWords = new Set();
+        state.score = 0;
         state.roundEndsAt = data.startedAt ? data.startedAt.toMillis() + data.durationSeconds*1000 : null;
       }
       state.screen = 'playing';
@@ -516,6 +534,7 @@ function beginCountdown(){
       } else {
         clearInterval(iv);
         state.foundWords = new Set();
+        state.score = 0;
         state.room = { ...state.room, status:'playing', startedAt: null };
         state.roundEndsAt = Date.now() + state.room.durationSeconds*1000;
         state.screen = 'playing';
@@ -655,43 +674,72 @@ async function submitCurrentWord(){
   const board = state.room.board;
   const word = state.currentPath.map(i=>board[i]).join('');
   const tray = document.getElementById('tray');
+  const countEl = document.getElementById('myCount');
+
+  function flashBad(msg){
+    tray.classList.add('flash-bad'); setTimeout(()=>tray.classList.remove('flash-bad'),400);
+    if(msg) toast(msg);
+  }
+  function updateCount(){
+    countEl.textContent = state.foundWords.size + ' found · ' + state.score + ' pts';
+  }
+  function accept(){
+    const pts = scoreForLength(word.length);
+    state.score += pts;
+    updateCount();
+    tray.classList.add('flash-good'); setTimeout(()=>tray.classList.remove('flash-good'),400);
+    popScore(pts, tray);
+    saveFoundWord(word);
+  }
+
   if(state.currentPath.length < MIN_WORD_LEN || word.length < MIN_WORD_LEN){
-    if(state.currentPath.length > 0){ tray.classList.add('flash-bad'); setTimeout(()=>tray.classList.remove('flash-bad'),400); }
+    if(state.currentPath.length > 0) flashBad();
     return;
   }
   if(state.foundWords.has(word)){
-    tray.classList.add('flash-bad'); setTimeout(()=>tray.classList.remove('flash-bad'),400);
-    toast('Already found that one');
+    flashBad('Already found that one');
     return;
   }
 
-  // Reserve the word immediately so a second fast trace of it while the
-  // check is still in flight doesn't get queued twice.
-  state.foundWords.add(word);
-  const countEl = document.getElementById('myCount');
-  countEl.textContent = state.foundWords.size + ' found (checking ' + word.toLowerCase() + '...)';
+  // Fast path: in the local word list, so this resolves with zero
+  // network calls and no waiting at all.
+  if(Duel.isInLocalList(word)){
+    state.foundWords.add(word);
+    accept();
+    return;
+  }
 
-  const ok = await isRealWord(word);
+  // Slow path: not in the local list, so we ask the dictionary API.
+  // This should be the exception rather than the rule during normal play.
+  state.foundWords.add(word); // reserve so a fast re-trace isn't double counted
+  countEl.textContent = state.foundWords.size + ' found · ' + state.score + ' pts (checking ' + word.toLowerCase() + '...)';
+  const ok = await Duel.isRealWord(word);
 
   if(!ok){
     state.foundWords.delete(word);
-    countEl.textContent = state.foundWords.size + ' found';
-    tray.classList.add('flash-bad'); setTimeout(()=>tray.classList.remove('flash-bad'),400);
-    toast(word.toLowerCase() + " isn't a real word");
+    updateCount();
+    flashBad(word.toLowerCase() + " isn't a real word");
     return;
   }
+  accept();
+}
 
-  countEl.textContent = state.foundWords.size + ' found';
-  tray.classList.add('flash-good'); setTimeout(()=>tray.classList.remove('flash-good'),400);
-
+function saveFoundWord(word){
   if(state.localMode){
     if(!state.room.p1.words) state.room.p1.words = [];
     state.room.p1.words.push(word);
     return;
   }
-
   const ref = db.collection('boggleRooms').doc(state.roomId);
   ref.update({ [`${state.playerId}.words`]: firebase.firestore.FieldValue.arrayUnion(word) });
+}
+
+function popScore(points, anchorEl){
+  const pop = document.createElement('div');
+  pop.className = 'score-pop';
+  pop.textContent = '+' + points;
+  anchorEl.appendChild(pop);
+  setTimeout(()=>pop.remove(), 700);
 }
 
 /* ============================================================
