@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Duel — Telephone Draw</title>
 <meta name="theme-color" content="#123524">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -641,21 +641,19 @@ function wireCanvas(){
 /* ============================================================
    KEYBOARD FIX — see ladder.html for the full explanation.
    ============================================================ */
+/* ============================================================
+   KEYBOARD FIX — see ladder.html for the full explanation.
+   Dropped the VirtualKeyboard-API/overlay approach for the plain
+   visualViewport-resize technique, and override minHeight (not
+   just height) since #app's stylesheet min-height:100dvh was
+   acting as a floor that silently undid the resize.
+   ============================================================ */
 function setupKeyboardFix(){
-  if('virtualKeyboard' in navigator){
-    navigator.virtualKeyboard.overlaysContent = true;
-    navigator.virtualKeyboard.addEventListener('geometrychange', (e)=>{
-      const app = document.getElementById('app');
-      app.style.paddingBottom = e.target.boundingRect.height > 0
-        ? (e.target.boundingRect.height + 12) + 'px'
-        : '';
-    });
-    return;
-  }
   if(!window.visualViewport) return;
   const app = document.getElementById('app');
   function update(){
     app.style.height = window.visualViewport.height + 'px';
+    app.style.minHeight = window.visualViewport.height + 'px';
     window.scrollTo(0, 0);
   }
   window.visualViewport.addEventListener('resize', update);

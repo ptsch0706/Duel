@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=overlays-content">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Duel — Word Ladder Race</title>
 <meta name="theme-color" content="#123524">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -715,32 +715,24 @@ function startLocalTimerTick(){
 
 /* ============================================================
    KEYBOARD FIX
-   The interactive-widget=overlays-content viewport setting (in
-   the <head>) tells supporting browsers to let the keyboard sit
-   on top of the page instead of resizing/scrolling it — good,
-   that's what stopped the page-jump. But "overlay" also means
-   nothing automatically makes room for the input field above the
-   keyboard, so on browsers that support the newer VirtualKeyboard
-   API we listen for its real geometry and pad the app by exactly
-   that much. Browsers without that API (notably Safari) don't
-   honor the overlay setting anyway and fall back to the older
-   visualViewport-resize approach, which still works there.
+   #app has min-height:100dvh in the stylesheet. min-height acts as
+   a floor — so previously, setting a smaller inline height when the
+   keyboard opened did nothing, because the stylesheet's min-height
+   forced #app back to full height regardless, and the keyboard just
+   covered whatever sat at the bottom (the input). Setting minHeight
+   inline here overrides that floor so #app can actually shrink to
+   the visible area, leaving genuine room above the keyboard.
+   (Dropped the newer VirtualKeyboard-API/overlay approach — its
+   browser support is inconsistent enough that it caused more
+   regressions than it fixed. This plain visualViewport-resize
+   technique is the well-tested baseline.)
    ============================================================ */
 function setupKeyboardFix(){
-  if('virtualKeyboard' in navigator){
-    navigator.virtualKeyboard.overlaysContent = true;
-    navigator.virtualKeyboard.addEventListener('geometrychange', (e)=>{
-      const app = document.getElementById('app');
-      app.style.paddingBottom = e.target.boundingRect.height > 0
-        ? (e.target.boundingRect.height + 12) + 'px'
-        : '';
-    });
-    return;
-  }
   if(!window.visualViewport) return;
   const app = document.getElementById('app');
   function update(){
     app.style.height = window.visualViewport.height + 'px';
+    app.style.minHeight = window.visualViewport.height + 'px';
     window.scrollTo(0, 0);
   }
   window.visualViewport.addEventListener('resize', update);

@@ -148,11 +148,20 @@ const Duel = {
   async isRealWord(word){
     const w = word.toUpperCase();
     if(DUEL_LOCAL_WORDS.has(w)) return true;
-    try{
-      const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${w.toLowerCase()}`);
-      return res.ok;
-    }catch(e){
-      return true;
+    const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${w.toLowerCase()}`;
+    // Try twice (a short pause between attempts) before giving up — a
+    // genuine word shouldn't get rejected over one dropped packet. But if
+    // the API still can't be reached after that, treat it as not-a-word
+    // rather than accepting on faith: silently accepting on failure meant
+    // any real connectivity hiccup let complete gibberish through for free.
+    for(let attempt=0; attempt<2; attempt++){
+      try{
+        const res = await fetch(url);
+        return res.ok;
+      }catch(e){
+        if(attempt===0) await new Promise(r=>setTimeout(r,400));
+      }
     }
+    return false;
   }
 };
