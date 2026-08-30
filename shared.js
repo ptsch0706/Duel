@@ -154,11 +154,18 @@ const Duel = {
     // the API still can't be reached after that, treat it as not-a-word
     // rather than accepting on faith: silently accepting on failure meant
     // any real connectivity hiccup let complete gibberish through for free.
+    // Each attempt is capped at 3s via AbortController — a slow-but-not-
+    // erroring API previously had no timeout at all, so a hung request
+    // could leave the player waiting indefinitely, and retrying doubled it.
     for(let attempt=0; attempt<2; attempt++){
+      const controller = new AbortController();
+      const timeoutId = setTimeout(()=>controller.abort(), 3000);
       try{
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timeoutId);
         return res.ok;
       }catch(e){
+        clearTimeout(timeoutId);
         if(attempt===0) await new Promise(r=>setTimeout(r,400));
       }
     }
