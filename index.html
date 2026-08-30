@@ -11,17 +11,27 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="shared.js"></script>
+<script>
+// Registers the network-first service worker (sw.js) so updates deploy
+// instantly instead of getting stuck behind a stale cached version on
+// the home-screen icon. Same pattern as the Focus app.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js');
+  });
+}
+</script>
 <style>
   :root{
-    --felt: #123524; --felt-deep:#0c2419; --felt-light:#1d4a34;
+    --felt: #1a1a1a; --felt-deep:#111111; --felt-light:#242424;
     --ivory:#f4ecd8; --ivory-dim:#e3d7b4; --ink:#22201c;
-    --brass:#c9a227; --brass-bright:#e6c04f; --brass-dark:#8f6f16;
+    --brass:#c9a227; --brass-bright:#d8b84a; --brass-dark:#8f6f16;
     --line: rgba(244,236,216,0.14);
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{
-    height:100%; margin:0;
-    background: radial-gradient(120% 140% at 50% -10%, var(--felt-light), var(--felt) 55%, var(--felt-deep) 100%);
+    min-height:100%; margin:0;
+    background: #1a1a1a;
     color:var(--ivory); font-family:'Work Sans', sans-serif; -webkit-user-select:none; user-select:none;
   }
   #app{ min-height:100dvh; display:flex; flex-direction:column; padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom)); }
@@ -36,18 +46,16 @@
   }
   input:focus{ border-color:var(--brass); }
   .card{ background:rgba(0,0,0,0.16); border:1px solid var(--line); border-radius:16px; padding:18px; margin-top:14px; }
-  .game-list{ margin-top:8px; display:flex; flex-direction:column; gap:12px; }
+  .game-list{ margin-top:8px; display:flex; flex-direction:column; gap:10px; }
   .game-tile{
-    display:flex; align-items:center; justify-content:space-between; gap:12px;
-    padding:18px; border-radius:14px; text-decoration:none; color:inherit;
-    background:linear-gradient(180deg, rgba(244,236,216,0.08), rgba(244,236,216,0.03));
-    border:1px solid var(--line); transition: transform .08s ease;
+    display:flex; align-items:center; gap:12px;
+    padding:12px; border-radius:12px; text-decoration:none; color:inherit;
+    transition: transform .08s ease;
   }
   .game-tile:active{ transform:scale(.98); }
-  .game-tile.disabled{ opacity:.45; pointer-events:none; }
-  .game-tile .title{ font-family:'Fraunces'; font-weight:700; font-size:19px; }
-  .game-tile .desc{ font-size:13px; color:var(--ivory-dim); margin-top:2px; }
-  .game-tile .badge{ font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--brass-bright); border:1px solid var(--brass-dark); padding:4px 8px; border-radius:20px; white-space:nowrap; }
+  .game-tile .icon{ width:44px; height:44px; border-radius:8px; flex-shrink:0; overflow:hidden; }
+  .game-tile .title{ font-family:'Fraunces'; font-weight:700; font-size:15px; }
+  .game-tile .desc{ font-size:11px; margin-top:2px; }
   .toast{
     position:fixed; left:20px; right:20px; bottom:max(20px, env(safe-area-inset-bottom));
     background:var(--felt-light); border:1px solid var(--brass); border-radius:12px;
@@ -70,33 +78,46 @@
   </div>
 
   <div class="game-list" id="gameList">
-    <a class="game-tile" href="boggle.html" id="boggleTile">
-      <div>
-        <div class="title">Speed Boggle Duel</div>
-        <div class="desc">Race to find words on a shared board</div>
+    <a class="game-tile" href="boggle.html" id="boggleTile" style="background:#123524;">
+      <div class="icon" style="display:grid; grid-template-columns:repeat(2,1fr); gap:2px; background:#123524;">
+        <div style="background:#f4ecd8; display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:700; font-size:12px; color:#22201c;">C</div>
+        <div style="background:#f4ecd8; display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:700; font-size:12px; color:#22201c;">A</div>
+        <div style="background:#f4ecd8; display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:700; font-size:12px; color:#22201c;">T</div>
+        <div style="background:#e6c04f; display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:700; font-size:12px; color:#3d2b02;">S</div>
       </div>
-      <div class="badge">Play</div>
+      <div>
+        <div class="title" style="color:#e6c04f;">Speed Boggle Duel</div>
+        <div class="desc" style="color:#bcd6c6;">Race to find words on a shared board</div>
+      </div>
     </a>
-    <a class="game-tile" href="ladder.html" id="ladderTile">
-      <div>
-        <div class="title">Word Ladder Race</div>
-        <div class="desc">Turn one word into another, fastest wins</div>
+    <a class="game-tile" href="ladder.html" id="ladderTile" style="background:#1c2a4a;">
+      <div class="icon" style="display:flex; flex-direction:column; gap:2px; padding:3px; background:#1c2a4a;">
+        <div style="background:#eef3ec; border-radius:3px; flex:1; display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:700; font-size:9px; color:#1c2a4a;">COLD</div>
+        <div style="background:#eef3ec; border-radius:3px; flex:1; display:flex; align-items:center; justify-content:center; font-family:'Fraunces',serif; font-weight:700; font-size:9px; color:#1c2a4a;">C<span style="color:#3f9d5c;">O</span>RD</div>
       </div>
-      <div class="badge">Play</div>
+      <div>
+        <div class="title" style="color:#8fd6a8;">Word Ladder Race</div>
+        <div class="desc" style="color:#b7c3dc;">Turn one word into another, fastest wins</div>
+      </div>
     </a>
-    <a class="game-tile" href="telephone.html" id="telephoneTile">
-      <div>
-        <div class="title">Telephone Draw</div>
-        <div class="desc">Draw it, guess it, draw it again</div>
+    <a class="game-tile" href="telephone.html" id="telephoneTile" style="background:#6b3a2e;">
+      <div class="icon" style="background:#faf3e6; display:flex; align-items:center; justify-content:center;">
+        <svg width="30" height="20" viewBox="0 0 60 30"><path d="M4 24 Q 14 4, 24 20 T 44 12 Q 50 6, 56 16" stroke="#6b3a2e" stroke-width="3" fill="none" stroke-linecap="round"/></svg>
       </div>
-      <div class="badge">Play</div>
+      <div>
+        <div class="title" style="color:#f4ddc8;">Telephone Draw</div>
+        <div class="desc" style="color:#e3c3b3;">Draw it, guess it, draw it again</div>
+      </div>
     </a>
-    <a class="game-tile" href="trivia.html" id="triviaTile">
-      <div>
-        <div class="title">Trivia Duel</div>
-        <div class="desc">Batches of questions, play anytime</div>
+    <a class="game-tile" href="trivia.html" id="triviaTile" style="background:#3a2145;">
+      <div class="icon" style="display:flex; flex-direction:column; gap:2px; padding:3px; background:#3a2145;">
+        <div style="background:#4d2c5c; border-radius:3px; flex:1; display:flex; align-items:center; padding:0 4px; font-size:8px; color:#f0e6f2;">Capital?</div>
+        <div style="background:#e6c04f; border-radius:3px; flex:1; display:flex; align-items:center; padding:0 4px; font-size:8px; color:#3a2145;">Paris</div>
       </div>
-      <div class="badge">Play</div>
+      <div>
+        <div class="title" style="color:#e6c04f;">Trivia Duel</div>
+        <div class="desc" style="color:#cbb3d1;">Batches of questions, play anytime</div>
+      </div>
     </a>
   </div>
 </div>

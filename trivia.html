@@ -14,12 +14,22 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="shared.js"></script>
+<script>
+// Registers the network-first service worker (sw.js) so updates deploy
+// instantly instead of getting stuck behind a stale cached version on
+// the home-screen icon. Same pattern as the Focus app.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js');
+  });
+}
+</script>
 
 <style>
   /* Same felt/ivory/brass identity as the rest of Duel */
   :root{
-    --felt: #123524; --felt-deep:#0c2419; --felt-light:#1d4a34;
-    --ivory: #f4ecd8; --ivory-dim: #e3d7b4; --ink: #22201c;
+    --felt: #3a2145; --felt-deep:#271530; --felt-light:#4d2c5c;
+    --ivory: #f4ecd8; --ivory-dim: #cbb3d1; --ink: #1c0f22;
     --brass: #c9a227; --brass-bright: #e6c04f; --brass-dark: #8f6f16;
     --alert: #c1440e; --success: #7a9b5c;
     --line: rgba(244,236,216,0.14);
@@ -27,7 +37,7 @@
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{
-    height:100%; margin:0; overscroll-behavior:none;
+    min-height:100%; margin:0; overscroll-behavior:none;
     background: radial-gradient(120% 140% at 50% -10%, var(--felt-light), var(--felt) 55%, var(--felt-deep) 100%);
     color:var(--ivory); font-family:'Work Sans', sans-serif; -webkit-user-select:none; user-select:none;
   }
@@ -39,6 +49,8 @@
   .brand{ text-align:center; margin: 10px 0 28px; }
   .back-link{ display:inline-block; font-size:13px; color:var(--ivory-dim); text-decoration:none; margin-bottom:4px; }
   .back-link:active{ color:var(--brass-bright); }
+  .stop-btn{ display:inline-block; font-size:13px; color:var(--alert); background:none; border:none; padding:0; font-family:'Work Sans'; cursor:pointer; margin-bottom:4px; }
+  .stop-btn:active{ opacity:.7; }
   .brand .kicker{ display:block; font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--brass-bright); opacity:.85; margin-bottom:6px; }
   .brand h1{ font-size:38px; line-height:1; }
 
@@ -137,141 +149,76 @@ const db = Duel.db; // shared Firebase connection from shared.js
 const toast = Duel.toast;
 
 /* ============================================================
-   QUESTION BANK
-   Every question here is a stable, well-established fact I'm
-   confident about — nothing tied to a "current" record holder,
-   population ranking, or anything else that could go stale.
-   90 questions across 6 classic categories. Multiple choice,
-   4 options each, correct index given.
+   LIVE QUESTIONS — Open Trivia Database (opentdb.com)
+   No API key needed. A session token is requested once per page
+   load so the API won't repeat a question within this session;
+   if the token's pool of questions is ever exhausted, we reset it
+   and retry once. Questions come back with HTML-entity-encoded
+   text (e.g. &quot;, &#039;), so everything gets decoded before
+   use, and each question's 4 answers are shuffled client-side
+   since the API always lists the correct one alongside 3 wrong
+   ones in an unshuffled order.
+
+   This means Trivia Duel now depends on opentdb.com being up and
+   reachable — there's no local fallback question bank anymore.
+   If the API is unreachable, starting a round will show an error
+   with a retry option rather than silently failing.
    ============================================================ */
-const QUESTIONS = [
-// Geography
-{c:'Geography', q:'What is the largest country in the world by area?', o:['Canada','Russia','China','USA'], a:1},
-{c:'Geography', q:'What is the smallest country in the world?', o:['Monaco','San Marino','Vatican City','Liechtenstein'], a:2},
-{c:'Geography', q:'Which continent has the most countries?', o:['Asia','Africa','Europe','South America'], a:1},
-{c:'Geography', q:'What is the capital of Japan?', o:['Osaka','Kyoto','Tokyo','Yokohama'], a:2},
-{c:'Geography', q:"What is Australia's capital city?", o:['Sydney','Melbourne','Canberra','Perth'], a:2},
-{c:'Geography', q:'Which is the largest ocean on Earth?', o:['Atlantic','Indian','Arctic','Pacific'], a:3},
-{c:'Geography', q:'Mount Everest is located in which mountain range?', o:['Andes','Alps','Himalayas','Rockies'], a:2},
-{c:'Geography', q:'The Sahara Desert is located on which continent?', o:['Asia','Africa','South America','Australia'], a:1},
-{c:'Geography', q:'Which country gifted the Statue of Liberty to the USA?', o:['England','France','Spain','Italy'], a:1},
-{c:'Geography', q:'The Great Barrier Reef lies off the coast of which country?', o:['Brazil','Thailand','Australia','Mexico'], a:2},
-{c:'Geography', q:'What is the capital of Canada?', o:['Toronto','Vancouver','Ottawa','Montreal'], a:2},
-{c:'Geography', q:'Which country has the most time zones (due to overseas territories)?', o:['Russia','USA','France','China'], a:2},
-{c:'Geography', q:'The Amazon Rainforest is primarily located in which country?', o:['Peru','Colombia','Brazil','Venezuela'], a:2},
-{c:'Geography', q:'Which African country was formerly known as Abyssinia?', o:['Kenya','Ethiopia','Sudan','Somalia'], a:1},
-{c:'Geography', q:'Which country is transcontinental, spanning both Europe and Asia?', o:['Turkey','Egypt','Morocco','Greece'], a:0},
-// History
-{c:'History', q:'In which year did World War II end?', o:['1943','1944','1945','1946'], a:2},
-{c:'History', q:'Who was the first President of the United States?', o:['John Adams','Thomas Jefferson','George Washington','Benjamin Franklin'], a:2},
-{c:'History', q:'The Great Wall is located in which country?', o:['Japan','China','Mongolia','South Korea'], a:1},
-{c:'History', q:'Which ancient civilization built the pyramids of Giza?', o:['Romans','Greeks','Egyptians','Aztecs'], a:2},
-{c:'History', q:'In which year did the Titanic sink?', o:['1905','1912','1918','1923'], a:1},
-{c:'History', q:'Who was the primary author of the Declaration of Independence?', o:['John Adams','Thomas Jefferson','Benjamin Franklin','James Madison'], a:1},
-{c:'History', q:'The Berlin Wall fell in which year?', o:['1987','1988','1989','1991'], a:2},
-{c:'History', q:'Julius Caesar ruled which empire?', o:['Greek Empire','Roman Empire','Persian Empire','Ottoman Empire'], a:1},
-{c:'History', q:'In which country did the French Revolution take place?', o:['Spain','Italy','France','Germany'], a:2},
-{c:'History', q:'Who was the first person to walk on the Moon?', o:['Buzz Aldrin','Neil Armstrong','Yuri Gagarin','John Glenn'], a:1},
-{c:'History', q:'The Renaissance began in which country?', o:['France','Italy','England','Spain'], a:1},
-{c:'History', q:'The American Civil War was fought between which two regions?', o:['East and West','North and South','Coast and Inland','Urban and Rural'], a:1},
-{c:'History', q:'In which year did India gain independence from British rule?', o:['1945','1946','1947','1950'], a:2},
-{c:'History', q:'Queen Elizabeth II was the monarch of which country for over 60 years?', o:['Spain','Sweden','United Kingdom','Netherlands'], a:2},
-{c:'History', q:'Ancient Rome was famously built on how many hills?', o:['Five','Seven','Nine','Twelve'], a:1},
-// Science & Nature
-{c:'Science & Nature', q:'Which planet is known as the Red Planet?', o:['Venus','Mars','Jupiter','Mercury'], a:1},
-{c:'Science & Nature', q:'What is the chemical symbol for gold?', o:['Go','Gd','Au','Ag'], a:2},
-{c:'Science & Nature', q:'How many bones are in the adult human body?', o:['186','206','226','246'], a:1},
-{c:'Science & Nature', q:'What gas do plants absorb from the atmosphere for photosynthesis?', o:['Oxygen','Nitrogen','Carbon dioxide','Hydrogen'], a:2},
-{c:'Science & Nature', q:'What is the hardest naturally occurring substance on Earth?', o:['Quartz','Diamond','Titanium','Granite'], a:1},
-{c:'Science & Nature', q:'Which planet is closest to the Sun?', o:['Venus','Earth','Mercury','Mars'], a:2},
-{c:'Science & Nature', q:'What part of the cell is known as its "powerhouse"?', o:['Nucleus','Mitochondria','Ribosome','Cytoplasm'], a:1},
-{c:'Science & Nature', q:'How many legs does a spider have?', o:['6','8','10','12'], a:1},
-{c:'Science & Nature', q:'Sound travels fastest through which type of medium?', o:['Gas','Liquid','Solid','Vacuum'], a:2},
-{c:'Science & Nature', q:'Which blood type is known as the universal donor?', o:['AB positive','O negative','A positive','B negative'], a:1},
-{c:'Science & Nature', q:"What is the largest organ in the human body?", o:['Liver','Brain','Skin','Lungs'], a:2},
-{c:'Science & Nature', q:'What is the freezing point of water in Celsius?', o:['-10°C','0°C','10°C','32°C'], a:1},
-{c:'Science & Nature', q:"Which gas makes up most of Earth's atmosphere?", o:['Oxygen','Carbon dioxide','Nitrogen','Argon'], a:2},
-{c:'Science & Nature', q:'How many chambers does the human heart have?', o:['2','3','4','5'], a:2},
-{c:'Science & Nature', q:'What do bees collect and use to make honey?', o:['Pollen','Nectar','Sap','Dew'], a:1},
-// Entertainment
-{c:'Entertainment', q:'Who directed the movie "Jaws"?', o:['George Lucas','Steven Spielberg','Martin Scorsese','James Cameron'], a:1},
-{c:'Entertainment', q:"In The Wizard of Oz, what color are Dorothy's famous slippers?", o:['Silver','Gold','Ruby red','Emerald green'], a:2},
-{c:'Entertainment', q:'Which band released the album "Abbey Road"?', o:['The Rolling Stones','The Beatles','Led Zeppelin','Pink Floyd'], a:1},
-{c:'Entertainment', q:'Who played Iron Man in the Marvel Cinematic Universe?', o:['Chris Evans','Chris Hemsworth','Robert Downey Jr.','Mark Ruffalo'], a:2},
-{c:'Entertainment', q:'What is the name of the coffee shop in the TV show "Friends"?', o:['Central Perk','The Grind','Java Stop','Cup of Joe'], a:0},
-{c:'Entertainment', q:'Which Disney movie features a snowman named Olaf?', o:['Tangled','Moana','Frozen','Encanto'], a:2},
-{c:'Entertainment', q:'Who composed "The Four Seasons"?', o:['Bach','Mozart','Beethoven','Vivaldi'], a:3},
-{c:'Entertainment', q:'Which instrument does a cellist play?', o:['Violin','Viola','Cello','Double bass'], a:2},
-{c:'Entertainment', q:"In Star Wars, who is Luke Skywalker's father?", o:['Obi-Wan Kenobi','Darth Vader','Yoda','Han Solo'], a:1},
-{c:'Entertainment', q:'Which artist is known as the "King of Pop"?', o:['Prince','Elvis Presley','Michael Jackson','Stevie Wonder'], a:2},
-{c:'Entertainment', q:'What does "MGM" stand for in the classic film studio name?', o:['Metro-Goldwyn-Mayer','Major General Motion','Modern Global Media','Metropolitan Grand Motion'], a:0},
-{c:'Entertainment', q:'A standard piano has how many keys?', o:['76','80','88','96'], a:2},
-{c:'Entertainment', q:'Who wrote the music for the songs in the 1994 film "The Lion King"?', o:['Alan Menken','Elton John','Hans Zimmer','Randy Newman'], a:1},
-{c:'Entertainment', q:'"The Simpsons" is set in a fictional town called what?', o:['Springfield','Quahog','South Park','Arlen'], a:0},
-{c:'Entertainment', q:'Which sea creature is the title character of a popular animated Pixar film about a lost fish?', o:['Marlin','Nemo','Dory','Bruce'], a:1},
-// Sports & Leisure
-{c:'Sports & Leisure', q:'How many players are on a soccer team on the field at once?', o:['9','10','11','12'], a:2},
-{c:'Sports & Leisure', q:'In tennis, what is a score of zero called?', o:['Nil','Love','Deuce','Ace'], a:1},
-{c:'Sports & Leisure', q:'How many rings are on the Olympic flag?', o:['4','5','6','7'], a:1},
-{c:'Sports & Leisure', q:'A "slam dunk" is a term from which sport?', o:['Volleyball','Basketball','Handball','Football'], a:1},
-{c:'Sports & Leisure', q:'How many holes are played in a standard round of golf?', o:['9','16','18','21'], a:2},
-{c:'Sports & Leisure', q:"What is Japan's traditional national sport?", o:['Judo','Sumo wrestling','Karate','Kendo'], a:1},
-{c:'Sports & Leisure', q:'"Checkmate" is a term from which game?', o:['Checkers','Chess','Backgammon','Go'], a:1},
-{c:'Sports & Leisure', q:'How many players are on a basketball team on the court at once?', o:['4','5','6','7'], a:1},
-{c:'Sports & Leisure', q:'What shape is a baseball infield, officially?', o:['A diamond','A square','A pentagon','A triangle'], a:1},
-{c:'Sports & Leisure', q:'In boxing, how many minutes is a standard round?', o:['2','3','4','5'], a:1},
-{c:'Sports & Leisure', q:'Which sport uses a shuttlecock?', o:['Tennis','Squash','Badminton','Table tennis'], a:2},
-{c:'Sports & Leisure', q:'How many players are on a volleyball team on the court?', o:['5','6','7','8'], a:1},
-{c:'Sports & Leisure', q:'What is the highest-scoring spot on a dartboard called?', o:['The rim','The bullseye','The crown','The apex'], a:1},
-{c:'Sports & Leisure', q:'Which sport uses a "puck"?', o:['Field hockey','Ice hockey','Lacrosse','Curling'], a:1},
-{c:'Sports & Leisure', q:'How many players are on a cricket team?', o:['9','10','11','12'], a:2},
-// Arts & Literature
-{c:'Arts & Literature', q:'Who painted the Mona Lisa?', o:['Michelangelo','Raphael','Leonardo da Vinci','Donatello'], a:2},
-{c:'Arts & Literature', q:'Who wrote the play "Romeo and Juliet"?', o:['Christopher Marlowe','William Shakespeare','Ben Jonson','John Milton'], a:1},
-{c:'Arts & Literature', q:'Which artist famously cut off part of his own ear?', o:['Claude Monet','Vincent van Gogh','Pablo Picasso','Paul Cézanne'], a:1},
-{c:'Arts & Literature', q:'Who wrote "Pride and Prejudice"?', o:['Charlotte Brontë','Jane Austen','Emily Brontë','George Eliot'], a:1},
-{c:'Arts & Literature', q:'What is the name of the wizarding school in Harry Potter?', o:['Hogwarts','Beauxbatons','Durmstrang','Ilvermorny'], a:0},
-{c:'Arts & Literature', q:'Who sculpted the statue of David?', o:['Donatello','Bernini','Michelangelo','Rodin'], a:2},
-{c:'Arts & Literature', q:'Which author wrote the novel "1984"?', o:['Aldous Huxley','George Orwell','Ray Bradbury','H.G. Wells'], a:1},
-{c:'Arts & Literature', q:'Salvador Dalí is most associated with which art movement?', o:['Cubism','Impressionism','Surrealism','Baroque'], a:2},
-{c:'Arts & Literature', q:'Who wrote "The Adventures of Tom Sawyer"?', o:['Mark Twain','Nathaniel Hawthorne','Herman Melville','Washington Irving'], a:0},
-{c:'Arts & Literature', q:'In which museum is the Mona Lisa displayed?', o:['The Prado','The Louvre','The Uffizi','The British Museum'], a:1},
-{c:'Arts & Literature', q:'Who wrote the Sherlock Holmes detective stories?', o:['Agatha Christie','Arthur Conan Doyle','Wilkie Collins','G.K. Chesterton'], a:1},
-{c:'Arts & Literature', q:'Rosencrantz and Guildenstern are characters in which Shakespeare play?', o:['Macbeth','Othello','Hamlet','King Lear'], a:2},
-{c:'Arts & Literature', q:'Who painted "The Starry Night"?', o:['Claude Monet','Vincent van Gogh','Edvard Munch','Henri Matisse'], a:1},
-{c:'Arts & Literature', q:'"Mark Twain" was the pen name of which author?', o:['Samuel Clemens','Charles Dickens','Ambrose Bierce','O. Henry'], a:0},
-{c:'Arts & Literature', q:'Who wrote "To Kill a Mockingbird"?', o:['Harper Lee','Flannery O\'Connor','Carson McCullers','Eudora Welty'], a:0}
-];
+const OPENTDB_BASE = 'https://opentdb.com/api.php';
+let triviaSessionToken = null;
+
+function decodeHtml(html){
+  const el = document.createElement('textarea');
+  el.innerHTML = html;
+  return el.value;
+}
+
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
+
+async function getSessionToken(){
+  if(triviaSessionToken) return triviaSessionToken;
+  const res = await fetch('https://opentdb.com/api_token.php?command=request');
+  const data = await res.json();
+  triviaSessionToken = data.token;
+  return triviaSessionToken;
+}
+
+async function fetchQuestions(amount){
+  const token = await getSessionToken();
+  const url = `${OPENTDB_BASE}?amount=${amount}&type=multiple${token ? '&token='+token : ''}`;
+  const res = await fetch(url);
+  const data = await res.json();
+
+  if(data.response_code === 4 && token){
+    // This session's pool of unique questions is exhausted — reset and retry once.
+    await fetch(`https://opentdb.com/api_token.php?command=reset&token=${token}`);
+    return fetchQuestions(amount);
+  }
+  if(data.response_code !== 0 || !data.results || !data.results.length){
+    throw new Error('Trivia API returned no questions (code ' + data.response_code + ')');
+  }
+
+  return data.results.map(r=>{
+    const options = shuffle([...r.incorrect_answers, r.correct_answer]).map(decodeHtml);
+    const correctText = decodeHtml(r.correct_answer);
+    return {
+      c: decodeHtml(r.category),
+      q: decodeHtml(r.question),
+      o: options,
+      a: options.indexOf(correctText)
+    };
+  });
+}
 
 const ROUND_SIZE = 5;
 const TOTAL_ROUNDS_OPTIONS = { short:3, medium:5, long:8 };
-
-function shuffledIndices(n){
-  const arr = Array.from({length:n}, (_,i)=>i);
-  for(let i=arr.length-1;i>0;i--){
-    const j = Math.floor(Math.random()*(i+1));
-    [arr[i],arr[j]] = [arr[j],arr[i]];
-  }
-  return arr;
-}
-
-function buildRounds(totalRounds){
-  const need = totalRounds * ROUND_SIZE;
-  const pool = shuffledIndices(QUESTIONS.length).slice(0, Math.min(need, QUESTIONS.length));
-  const rounds = [];
-  for(let r=0; r<totalRounds; r++){
-    const ids = [];
-    for(let i=0;i<ROUND_SIZE;i++){
-      ids.push(pool[(r*ROUND_SIZE + i) % pool.length]);
-    }
-    rounds.push({
-      questionIds: ids,
-      p1: { answers:[], done:false, score:0 },
-      p2: { answers:[], done:false, score:0 }
-    });
-  }
-  return rounds;
-}
 
 /* ============================================================
    APP STATE
@@ -293,9 +240,18 @@ function render(){
   const app = document.getElementById('app');
   if(state.screen === 'home') app.innerHTML = renderHome();
   else if(state.screen === 'lobby') app.innerHTML = renderLobby();
+  else if(state.screen === 'loading') app.innerHTML = renderLoading();
   else if(state.screen === 'playing') app.innerHTML = renderPlaying();
   else if(state.screen === 'finished') app.innerHTML = renderFinished();
   wireScreen();
+}
+
+function renderLoading(){
+  return `
+  <div class="screen center" style="justify-content:center;">
+    <div class="spinner" style="margin:0 auto;"></div>
+    <h2 style="margin-top:16px;">Fetching questions...</h2>
+  </div>`;
 }
 
 function renderHome(){
@@ -321,8 +277,7 @@ function renderHome(){
       </div>
     </div>
     <div class="card center">
-      <div class="muted" style="margin-bottom:12px;">No Firebase set up yet? Test the quiz flow solo — no network needed.</div>
-      <button class="btn btn-ghost" id="soloBtn" style="width:100%;">Practice Solo (no Firebase)</button>
+      <button class="btn btn-ghost" id="soloBtn" style="width:100%;">Practice Solo</button>
     </div>
   </div>`;
 }
@@ -334,6 +289,7 @@ function renderLobby(){
   return `
   <div class="screen">
     <a href="index.html" class="back-link">&larr; Duel</a>
+    <button class="stop-btn" id="stopBtn" style="float:right;">Stop</button>
     <div class="brand" style="margin-bottom:14px;">
       <span class="kicker">${state.localMode ? 'Solo Practice' : 'Room Code'}</span>
       <div class="code-display">${state.localMode ? 'LOCAL' : state.roomId}</div>
@@ -390,6 +346,7 @@ function renderScoreHeader(){
   const myTotal = totalScoreSoFar(room, state.playerId);
   const oppTotal = state.localMode ? null : totalScoreSoFar(room, oppKey);
   return `
+    <button class="stop-btn" id="stopBtn">Stop</button>
     <div class="round-tag">Round ${room.currentRoundIndex+1} of ${room.rounds.length}</div>
     <div class="score-row">
       <div class="score-side"><div class="name">${room[state.playerId].name} (you)</div><div class="num">${myTotal}</div></div>
@@ -400,15 +357,14 @@ function renderScoreHeader(){
 function renderAnswering(){
   const room = state.room;
   const round = room.rounds[room.currentRoundIndex];
-  const qId = round.questionIds[state.localQIndex];
-  const question = QUESTIONS[qId];
+  const question = round.questions[state.localQIndex];
   const showingFeedback = state.lockedChoice !== null;
 
   return `
   <div class="screen">
     ${renderScoreHeader()}
     <div class="q-progress">
-      ${round.questionIds.map((_,i)=>`<div class="q-dot ${i<state.localQIndex?'done':(i===state.localQIndex?'current':'')}"></div>`).join('')}
+      ${round.questions.map((_,i)=>`<div class="q-dot ${i<state.localQIndex?'done':(i===state.localQIndex?'current':'')}"></div>`).join('')}
     </div>
     <div class="q-category">${question.c}</div>
     <div class="q-text">${question.q}</div>
@@ -443,8 +399,7 @@ function renderReveal(){
   const opp = round[oppKey];
   const isLastRound = room.currentRoundIndex >= room.rounds.length - 1;
 
-  const items = round.questionIds.map((qId, i)=>{
-    const question = QUESTIONS[qId];
+  const items = round.questions.map((question, i)=>{
     const myAns = me.answers[i];
     const oppAns = !state.localMode ? opp.answers[i] : null;
     return `
@@ -501,6 +456,9 @@ function renderFinished(){
    WIRE EVENTS
    ============================================================ */
 function wireScreen(){
+  const stopBtn = document.getElementById('stopBtn');
+  if(stopBtn) stopBtn.onclick = stopGame;
+
   if(state.screen === 'home'){
     document.getElementById('createBtn').onclick = createRoom;
     document.getElementById('joinBtn').onclick = joinRoom;
@@ -601,10 +559,31 @@ function subscribeToRoom(id){
   });
 }
 
-function beginGame(){
+async function beginGame(){
   const tier = state.selectedTier || state.room.tier || 'medium';
   const totalRounds = TOTAL_ROUNDS_OPTIONS[tier] || TOTAL_ROUNDS_OPTIONS.medium;
-  const rounds = buildRounds(totalRounds);
+
+  state.screen = 'loading';
+  render();
+
+  let questions;
+  try{
+    questions = await fetchQuestions(totalRounds * ROUND_SIZE);
+  }catch(e){
+    toast('Could not reach the trivia API — check your connection and try again');
+    state.screen = 'lobby';
+    render();
+    return;
+  }
+
+  const rounds = [];
+  for(let r=0; r<totalRounds; r++){
+    rounds.push({
+      questions: questions.slice(r*ROUND_SIZE, (r+1)*ROUND_SIZE),
+      p1: { answers:[], done:false, score:0 },
+      p2: { answers:[], done:false, score:0 }
+    });
+  }
   resetLocalAnswerState();
 
   if(state.localMode){
@@ -616,6 +595,17 @@ function beginGame(){
 
   const ref = db.collection('triviaRooms').doc(state.roomId);
   ref.update({ status:'playing', tier, rounds, currentRoundIndex: 0 });
+}
+
+function stopGame(){
+  if(state.unsub) state.unsub();
+  state.localMode = false;
+  state.roomId = null;
+  state.playerId = null;
+  state.room = null;
+  resetLocalAnswerState();
+  state.screen = 'home';
+  render();
 }
 
 function requestRematch(){
@@ -654,8 +644,7 @@ function submitRound(){
   const room = state.room;
   const round = room.rounds[room.currentRoundIndex];
   const score = state.localAnswers.reduce((sum, choice, i)=>{
-    const qId = round.questionIds[i];
-    return sum + (choice === QUESTIONS[qId].a ? 1 : 0);
+    return sum + (choice === round.questions[i].a ? 1 : 0);
   }, 0);
   const myResult = { answers: state.localAnswers.slice(), done: true, score };
 

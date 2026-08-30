@@ -14,20 +14,30 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="shared.js"></script>
+<script>
+// Registers the network-first service worker (sw.js) so updates deploy
+// instantly instead of getting stuck behind a stale cached version on
+// the home-screen icon. Same pattern as the Focus app.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js');
+  });
+}
+</script>
 
 <style>
   /* Same felt/ivory/brass identity as the rest of Duel */
   :root{
-    --felt: #123524; --felt-deep:#0c2419; --felt-light:#1d4a34;
-    --ivory: #f4ecd8; --ivory-dim: #e3d7b4; --ink: #22201c;
-    --brass: #c9a227; --brass-bright: #e6c04f; --brass-dark: #8f6f16;
+    --felt: #6b3a2e; --felt-deep:#4a2820; --felt-light:#7c4a3d;
+    --ivory: #faf3e6; --ivory-dim: #e3c3b3; --ink: #2e1a14;
+    --brass: #d9b48f; --brass-bright: #f4ddc8; --brass-dark: #a97c52;
     --alert: #c1440e; --success: #7a9b5c;
-    --line: rgba(244,236,216,0.14);
+    --line: rgba(250,243,230,0.14);
     --shadow-hard: 0 6px 0 rgba(0,0,0,0.35);
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{
-    height:100%; margin:0; overscroll-behavior:none;
+    min-height:100%; margin:0; overscroll-behavior:none;
     background: radial-gradient(120% 140% at 50% -10%, var(--felt-light), var(--felt) 55%, var(--felt-deep) 100%);
     color:var(--ivory); font-family:'Work Sans', sans-serif; -webkit-user-select:none; user-select:none;
   }
@@ -39,6 +49,8 @@
   .brand{ text-align:center; margin: 10px 0 28px; }
   .back-link{ display:inline-block; font-size:13px; color:var(--ivory-dim); text-decoration:none; margin-bottom:4px; }
   .back-link:active{ color:var(--brass-bright); }
+  .stop-btn{ display:inline-block; font-size:13px; color:var(--alert); background:none; border:none; padding:0; font-family:'Work Sans'; cursor:pointer; margin-bottom:4px; }
+  .stop-btn:active{ opacity:.7; }
   .brand .kicker{ display:block; font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--brass-bright); opacity:.85; margin-bottom:6px; }
   .brand h1{ font-size:38px; line-height:1; }
 
@@ -107,6 +119,9 @@
   }
   .canvas-tools{ display:flex; gap:10px; margin-top:12px; }
   .canvas-tools .btn{ flex:1; }
+  .color-row{ display:flex; gap:10px; justify-content:center; margin-top:14px; }
+  .color-swatch{ width:34px; height:34px; border-radius:50%; border:2px solid rgba(0,0,0,.15); cursor:pointer; padding:0; }
+  .color-swatch.active{ box-shadow:0 0 0 3px var(--brass-bright); }
 
   .queue-badge{
     display:inline-block; font-size:11px; color:var(--brass-bright); border:1px solid var(--brass-dark);
@@ -219,8 +234,7 @@ function renderHome(){
       </div>
     </div>
     <div class="card center">
-      <div class="muted" style="margin-bottom:12px;">No Firebase set up yet? Test the drawing tool solo — no network needed. (You'll play both sides yourself, so it won't have the real surprise — it's just for checking the flow works.)</div>
-      <button class="btn btn-ghost" id="soloBtn" style="width:100%;">Practice Solo (no Firebase)</button>
+      <button class="btn btn-ghost" id="soloBtn" style="width:100%;">Practice Solo</button>
     </div>
   </div>`;
 }
@@ -232,6 +246,7 @@ function renderLobby(){
   return `
   <div class="screen">
     <a href="index.html" class="back-link">&larr; Duel</a>
+    <button class="stop-btn" id="stopBtn" style="float:right;">Stop</button>
     <div class="brand" style="margin-bottom:14px;">
       <span class="kicker">${state.localMode ? 'Solo Practice' : 'Room Code'}</span>
       <div class="code-display">${state.localMode ? 'LOCAL' : state.roomId}</div>
@@ -283,7 +298,8 @@ function renderPlaying(){
     // Nothing to do right now — show live progress on both chains
     const chainIds = state.localMode ? ['A'] : ['A','B'];
     return `
-    <div class="screen center" style="justify-content:center;">
+    <div class="screen center" style="justify-content:center; position:relative;">
+      <button class="stop-btn" id="stopBtn" style="position:absolute; top:0; left:0;">Stop</button>
       <div class="spinner" style="margin:0 auto;"></div>
       <h2 style="margin-top:16px;">Waiting on your partner...</h2>
       <div class="progress-row">
@@ -308,6 +324,7 @@ function renderPlaying(){
     const isSeed = task.nextIndex === 0;
     return `
     <div class="screen">
+      <button class="stop-btn" id="stopBtn">Stop</button>
       ${extra}
       ${isSeed
         ? `<div class="prompt-box"><div class="from">Write a secret phrase</div><div class="muted">Your partner will draw this — nobody else sees it.</div></div>`
@@ -323,6 +340,7 @@ function renderPlaying(){
   // type === 'drawing'
   return `
   <div class="screen">
+    <button class="stop-btn" id="stopBtn">Stop</button>
     ${extra}
     <div class="prompt-box">
       <div class="from">Chain ${task.chainId} — draw this</div>
@@ -330,6 +348,14 @@ function renderPlaying(){
     </div>
     <div class="canvas-wrap">
       <canvas id="drawCanvas" width="${CANVAS_SIZE}" height="${CANVAS_SIZE}"></canvas>
+    </div>
+    <div class="color-row" id="colorRow">
+      <button class="color-swatch active" data-color="#22201c" style="background:#22201c;" title="Ink"></button>
+      <button class="color-swatch" data-color="#c1440e" style="background:#c1440e;" title="Red"></button>
+      <button class="color-swatch" data-color="#2f6690" style="background:#2f6690;" title="Blue"></button>
+      <button class="color-swatch" data-color="#2e7d4f" style="background:#2e7d4f;" title="Green"></button>
+      <button class="color-swatch" data-color="#c9a227" style="background:#c9a227;" title="Brass"></button>
+      <button class="color-swatch" data-color="#f4ecd8" style="background:#f4ecd8;" title="Eraser (matches paper)"></button>
     </div>
     <div class="canvas-tools">
       <button class="btn btn-ghost" id="clearBtn">Clear</button>
@@ -369,6 +395,9 @@ function renderResults(){
    WIRE EVENTS
    ============================================================ */
 function wireScreen(){
+  const stopBtn = document.getElementById('stopBtn');
+  if(stopBtn) stopBtn.onclick = stopGame;
+
   if(state.screen === 'home'){
     document.getElementById('createBtn').onclick = createRoom;
     document.getElementById('joinBtn').onclick = joinRoom;
@@ -477,6 +506,17 @@ function beginRound(){
   ref.update({ status:'playing', tier, chainLength, chainA:[], chainB:[] });
 }
 
+function stopGame(){
+  if(state.unsub) state.unsub();
+  state.localMode = false;
+  state.roomId = null;
+  state.playerId = null;
+  state.room = null;
+  state.activeTaskIndex = 0;
+  state.screen = 'home';
+  render();
+}
+
 function requestRematch(){
   if(state.localMode){
     state.room = { status:'lobby', p1:{ name: state.room.p1.name }, p2:null, chainA:[], chainB:[], chainLength: state.room.chainLength, tier: state.room.tier };
@@ -557,6 +597,17 @@ function wireCanvas(){
   ctx.lineJoin = 'round';
   ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#22201c';
 
+  const colorRow = document.getElementById('colorRow');
+  if(colorRow){
+    colorRow.querySelectorAll('.color-swatch').forEach(sw=>{
+      sw.onclick = ()=>{
+        ctx.strokeStyle = sw.dataset.color;
+        colorRow.querySelectorAll('.color-swatch').forEach(s=>s.classList.remove('active'));
+        sw.classList.add('active');
+      };
+    });
+  }
+
   let drawing = false, lastX = 0, lastY = 0;
 
   function pos(e){
@@ -588,9 +639,19 @@ function wireCanvas(){
 }
 
 /* ============================================================
-   KEYBOARD OVERLAY FIX — see ladder.html for the full explanation.
+   KEYBOARD FIX — see ladder.html for the full explanation.
    ============================================================ */
 function setupKeyboardFix(){
+  if('virtualKeyboard' in navigator){
+    navigator.virtualKeyboard.overlaysContent = true;
+    navigator.virtualKeyboard.addEventListener('geometrychange', (e)=>{
+      const app = document.getElementById('app');
+      app.style.paddingBottom = e.target.boundingRect.height > 0
+        ? (e.target.boundingRect.height + 12) + 'px'
+        : '';
+    });
+    return;
+  }
   if(!window.visualViewport) return;
   const app = document.getElementById('app');
   function update(){

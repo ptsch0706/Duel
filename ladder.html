@@ -14,20 +14,30 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="shared.js"></script>
+<script>
+// Registers the network-first service worker (sw.js) so updates deploy
+// instantly instead of getting stuck behind a stale cached version on
+// the home-screen icon. Same pattern as the Focus app.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js');
+  });
+}
+</script>
 
 <style>
   /* Same felt/ivory/brass identity as the rest of Duel, for suite consistency */
   :root{
-    --felt: #123524; --felt-deep:#0c2419; --felt-light:#1d4a34;
-    --ivory: #f4ecd8; --ivory-dim: #e3d7b4; --ink: #22201c;
-    --brass: #c9a227; --brass-bright: #e6c04f; --brass-dark: #8f6f16;
+    --felt: #1c2a4a; --felt-deep:#111d36; --felt-light:#2a3c63;
+    --ivory: #eef1e9; --ivory-dim: #d3d9c9; --ink: #16223d;
+    --brass: #5fae7a; --brass-bright: #8fd6a8; --brass-dark: #3f7d54;
     --alert: #c1440e; --success: #7a9b5c;
-    --line: rgba(244,236,216,0.14);
+    --line: rgba(238,241,233,0.14);
     --shadow-hard: 0 6px 0 rgba(0,0,0,0.35);
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body{
-    height:100%; margin:0; overscroll-behavior:none;
+    min-height:100%; margin:0; overscroll-behavior:none;
     background: radial-gradient(120% 140% at 50% -10%, var(--felt-light), var(--felt) 55%, var(--felt-deep) 100%);
     color:var(--ivory); font-family:'Work Sans', sans-serif; -webkit-user-select:none; user-select:none;
   }
@@ -39,6 +49,8 @@
   .brand{ text-align:center; margin: 10px 0 28px; }
   .back-link{ display:inline-block; font-size:13px; color:var(--ivory-dim); text-decoration:none; margin-bottom:4px; }
   .back-link:active{ color:var(--brass-bright); }
+  .stop-btn{ display:inline-block; font-size:13px; color:var(--alert); background:none; border:none; padding:0; font-family:'Work Sans'; cursor:pointer; margin-bottom:4px; }
+  .stop-btn:active{ opacity:.7; }
   .brand .kicker{ display:block; font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--brass-bright); opacity:.85; margin-bottom:6px; }
   .brand h1{ font-size:38px; line-height:1; }
 
@@ -288,8 +300,7 @@ function renderHome(){
       </div>
     </div>
     <div class="card center">
-      <div class="muted" style="margin-bottom:12px;">No Firebase set up yet? Test the game solo — no network needed.</div>
-      <button class="btn btn-ghost" id="soloBtn" style="width:100%;">Practice Solo (no Firebase)</button>
+      <button class="btn btn-ghost" id="soloBtn" style="width:100%;">Practice Solo</button>
     </div>
   </div>`;
 }
@@ -300,6 +311,7 @@ function renderLobby(){
   const tier = room?.tier || '4';
   return `
   <div class="screen">
+    <button class="stop-btn" id="stopBtn">Stop</button>
     <div class="brand" style="margin-bottom:14px;">
       <span class="kicker">${state.localMode ? 'Solo Practice' : 'Room Code'}</span>
       <div class="code-display">${state.localMode ? 'LOCAL' : state.roomId}</div>
@@ -329,7 +341,8 @@ function renderLobby(){
 function renderCountdown(){
   const n = state.room?.countdownValue ?? 3;
   return `
-  <div class="screen center" style="justify-content:center; align-items:center;">
+  <div class="screen center" style="justify-content:center; align-items:center; position:relative;">
+    <button class="stop-btn" id="stopBtn" style="position:absolute; top:20px; left:20px;">Stop</button>
     <div style="font-family:'Fraunces'; font-size:96px; font-weight:700; color:var(--brass-bright);">${n > 0 ? n : 'GO'}</div>
     <div class="muted">Study the start word...</div>
   </div>`;
@@ -343,6 +356,7 @@ function renderPlaying(){
   const chain = me.chain;
   return `
   <div class="screen">
+    <button class="stop-btn" id="stopBtn">Stop</button>
     <div class="topbar">
       <div class="timer-ring" id="timerRing">
         <svg viewBox="0 0 52 52"><circle class="bg" cx="26" cy="26" r="22"></circle><circle class="fg" id="timerCircle" cx="26" cy="26" r="22" stroke-dasharray="138" stroke-dashoffset="0"></circle></svg>
@@ -424,6 +438,9 @@ function renderResults(){
    WIRE EVENTS
    ============================================================ */
 function wireScreen(){
+  const stopBtn = document.getElementById('stopBtn');
+  if(stopBtn) stopBtn.onclick = stopGame;
+
   if(state.screen === 'home'){
     document.getElementById('createBtn').onclick = createRoom;
     document.getElementById('joinBtn').onclick = joinRoom;
@@ -571,6 +588,18 @@ function beginCountdown(){
   });
 }
 
+function stopGame(){
+  if(state.unsub) state.unsub();
+  if(state.timerInterval) clearInterval(state.timerInterval);
+  state.localMode = false;
+  state.roomId = null;
+  state.playerId = null;
+  state.room = null;
+  state.roundEndsAt = null;
+  state.screen = 'home';
+  render();
+}
+
 function requestRematch(){
   if(state.localMode){
     state.room = { status:'lobby', p1:{ name: state.room.p1.name, chain:[], moves:0, finished:false }, p2:null, durationSeconds: state.room.durationSeconds || ROUND_SECONDS_DEFAULT, tier: state.room.tier };
@@ -685,15 +714,29 @@ function startLocalTimerTick(){
 }
 
 /* ============================================================
-   KEYBOARD OVERLAY FIX
+   KEYBOARD FIX
    The interactive-widget=overlays-content viewport setting (in
-   the <head>) handles this on newer browsers, but not all of
-   them yet — this keeps #app pinned to the actual visible area
-   reported by the VisualViewport API, so opening the keyboard
-   shrinks the app in place instead of the page scrolling up and
-   hiding content above the input.
+   the <head>) tells supporting browsers to let the keyboard sit
+   on top of the page instead of resizing/scrolling it — good,
+   that's what stopped the page-jump. But "overlay" also means
+   nothing automatically makes room for the input field above the
+   keyboard, so on browsers that support the newer VirtualKeyboard
+   API we listen for its real geometry and pad the app by exactly
+   that much. Browsers without that API (notably Safari) don't
+   honor the overlay setting anyway and fall back to the older
+   visualViewport-resize approach, which still works there.
    ============================================================ */
 function setupKeyboardFix(){
+  if('virtualKeyboard' in navigator){
+    navigator.virtualKeyboard.overlaysContent = true;
+    navigator.virtualKeyboard.addEventListener('geometrychange', (e)=>{
+      const app = document.getElementById('app');
+      app.style.paddingBottom = e.target.boundingRect.height > 0
+        ? (e.target.boundingRect.height + 12) + 'px'
+        : '';
+    });
+    return;
+  }
   if(!window.visualViewport) return;
   const app = document.getElementById('app');
   function update(){
